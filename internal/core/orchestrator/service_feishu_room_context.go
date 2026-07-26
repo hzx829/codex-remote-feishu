@@ -176,6 +176,30 @@ func (s *Service) blockFeishuRoomActiveDispatch(surface *state.SurfaceConsoleRec
 	return nil
 }
 
+func (s *Service) sameRoomWorkspaceIndependentContextAllowed(surface *state.SurfaceConsoleRecord, workspaceKey string) bool {
+	if surface == nil || !s.surfaceIsHeadless(surface) {
+		return false
+	}
+	room := s.ensureFeishuRoomContextForSurface(surface)
+	if room == nil {
+		return false
+	}
+	workspaceKey = normalizeWorkspaceClaimKey(workspaceKey)
+	if workspaceKey == "" || normalizeWorkspaceClaimKey(room.WorkspaceKey) != workspaceKey {
+		return false
+	}
+	return s.feishuRoomActiveLockHolder(room, surface) == nil
+}
+
+func (s *Service) instanceClaimedBySameRoomSibling(surface *state.SurfaceConsoleRecord, instanceID string) bool {
+	owner := s.instanceClaimSurface(instanceID)
+	if owner == nil || surface == nil || owner.SurfaceSessionID == surface.SurfaceSessionID {
+		return false
+	}
+	roomID := surfaceFeishuRoomID(surface)
+	return roomID != "" && surfaceFeishuRoomID(owner) == roomID
+}
+
 func (s *Service) blockFeishuRoomActiveAutoDispatch(surface *state.SurfaceConsoleRecord) []eventcontract.Event {
 	room := s.ensureFeishuRoomContextForSurface(surface)
 	if room == nil {

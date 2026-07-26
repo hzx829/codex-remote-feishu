@@ -42,6 +42,7 @@ func TestDaemonPendingHeadlessRestoreTimeoutSuppressesRepeatedNotice(t *testing.
 	if snapshot == nil || snapshot.PendingHeadless.InstanceID == "" {
 		t.Fatalf("expected initial recovery tick to create pending headless, got %#v", snapshot)
 	}
+	expiresAt := snapshot.PendingHeadless.ExpiresAt
 	gateway := app.gateway.(*recordingGateway)
 	gateway.operations = nil
 
@@ -49,7 +50,7 @@ func TestDaemonPendingHeadlessRestoreTimeoutSuppressesRepeatedNotice(t *testing.
 		t.Fatalf("expected first restore timeout to be recorded as emitted, display=%q emit=%t", displayCode, emit)
 	}
 
-	app.onTick(context.Background(), now.Add(time.Minute))
+	app.onTick(context.Background(), expiresAt.Add(time.Second))
 
 	if len(gateway.operations) != 0 {
 		t.Fatalf("expected repeated pending headless restore timeout to stay silent, got %#v", gateway.operations)

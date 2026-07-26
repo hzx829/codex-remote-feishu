@@ -215,7 +215,10 @@ func (s *Service) handleText(surface *state.SurfaceConsoleRecord, action control
 			if workspaceKey == "" {
 				return s.openTargetPickerForAction(surface, action, "", nil, action.MessageID, false)
 			}
-			events := s.attachWorkspaceWithOptions(surface, workspaceKey, attachWorkspaceOptions{SuppressAutoUsePrompt: true})
+			targetBackend := s.surfaceBackend(surface)
+			continuation := s.buildHeadlessWorkspaceContinuation(surface, workspaceKey, targetBackend, false)
+			resolution := s.resolveWorkspaceContract(surface, workspaceKey, targetBackend)
+			events := s.executeResolvedWorkspaceContinuation(surface, continuation, resolution, attachWorkspaceOptions{SuppressAutoUsePrompt: true})
 			inst = s.root.Instances[surface.AttachedInstanceID]
 			if inst == nil {
 				return events

@@ -84,6 +84,84 @@ func TestRoomWorkspaceBindingLetsSameRoomSurfaceInheritWorkspace(t *testing.T) {
 	}
 }
 
+func TestRoomWorkspaceTextStartsIndependentHeadlessWhenOnlySiblingInstanceExists(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	delete(svc.root.Instances, "inst-droid-b")
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		MessageID:        "msg-2",
+		Text:             "hi",
+	})
+
+	if noticeCode(events, "workspace_instance_busy") != "" {
+		t.Fatalf("same-room inherited workspace should not try to claim sibling instance, got %#v", events)
+	}
+	if !hasStartHeadlessCommand(events) {
+		t.Fatalf("expected second same-room bot to start independent headless, got %#v", events)
+	}
+	first := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	if first.AttachedInstanceID != "inst-droid-a" || first.ClaimedWorkspaceKey != "/data/dl/droid" {
+		t.Fatalf("second bot must not disturb first bot route, got %#v", first)
+	}
+	second := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	if second.PendingHeadless == nil || second.PendingHeadless.WorkspaceKey != "/data/dl/droid" {
+		t.Fatalf("expected second bot pending headless for room workspace, got %#v", second)
+	}
+	if second.SelectedThreadID == "thread-droid-a" {
+		t.Fatalf("second bot must not inherit sibling thread, got %#v", second)
+	}
+}
+
+func TestRoomWorkspaceTextActiveSiblingBlocksBeforeIndependentHeadlessStart(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	delete(svc.root.Instances, "inst-droid-b")
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	running := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	running.ActiveQueueItemID = "queue-running"
+	running.QueueItems["queue-running"] = &state.QueueItemRecord{ID: "queue-running", Status: state.QueueItemRunning}
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		MessageID:        "msg-2",
+		Text:             "hi",
+	})
+
+	if noticeCode(events, "room_workspace_active") == "" {
+		t.Fatalf("expected active sibling to block same-room independent start, got %#v", events)
+	}
+	if hasStartHeadlessCommand(events) {
+		t.Fatalf("active sibling must block before start headless, got %#v", events)
+	}
+	second := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	if second.PendingHeadless != nil {
+		t.Fatalf("blocked second bot must not start pending headless, got %#v", second.PendingHeadless)
+	}
+}
+
 func TestRoomWorkspaceBindingDefaultsTargetPickerForNewSameRoomSurface(t *testing.T) {
 	svc := newRoomWorkspaceTestService(t)
 	svc.ApplySurfaceAction(control.Action{
@@ -106,6 +184,52 @@ func TestRoomWorkspaceBindingDefaultsTargetPickerForNewSameRoomSurface(t *testin
 	view := singleTargetPickerEvent(t, events)
 	if view.SelectedWorkspaceKey != "/data/dl/web" {
 		t.Fatalf("selected workspace = %q, want room binding /data/dl/web", view.SelectedWorkspaceKey)
+	}
+}
+
+func TestRoomWorkspaceTargetPickerNewThreadStartsIndependentHeadlessWhenOnlySiblingInstanceExists(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	delete(svc.root.Instances, "inst-droid-b")
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+
+	view := singleTargetPickerEvent(t, svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionListInstances,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+	}))
+	if view.SelectedWorkspaceKey != "/data/dl/droid" || view.SelectedSessionValue != targetPickerNewThreadValue {
+		t.Fatalf("expected room workspace new-thread target, got %#v", view)
+	}
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:              control.ActionTargetPickerConfirm,
+		SurfaceSessionID:  "feishu:app-2:chat:oc_room",
+		GatewayID:         "app-2",
+		ChatID:            "oc_room",
+		ActorUserID:       "ou_member",
+		PickerID:          view.PickerID,
+		WorkspaceKey:      "/data/dl/droid",
+		TargetPickerValue: targetPickerNewThreadValue,
+	})
+
+	if noticeCode(events, "workspace_instance_busy") != "" {
+		t.Fatalf("target picker should not try to claim sibling instance, got %#v", events)
+	}
+	if !hasStartHeadlessCommand(events) {
+		t.Fatalf("expected target picker confirm to start independent headless, got %#v", events)
+	}
+	second := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	if second.PendingHeadless == nil || !second.PendingHeadless.PrepareNewThread || second.PendingHeadless.WorkspaceKey != "/data/dl/droid" {
+		t.Fatalf("expected second bot pending new-thread headless for room workspace, got %#v", second)
 	}
 }
 
@@ -961,6 +1085,15 @@ func noticeTextContains(events []eventcontract.Event, code, text string) bool {
 func hasAgentCommand(events []eventcontract.Event) bool {
 	for _, event := range events {
 		if event.Kind == eventcontract.KindAgentCommand {
+			return true
+		}
+	}
+	return false
+}
+
+func hasStartHeadlessCommand(events []eventcontract.Event) bool {
+	for _, event := range events {
+		if event.DaemonCommand != nil && event.DaemonCommand.Kind == control.DaemonCommandStartHeadless {
 			return true
 		}
 	}

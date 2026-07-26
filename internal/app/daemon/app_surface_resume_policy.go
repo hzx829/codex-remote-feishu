@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/surfaceresume"
+	"github.com/kxn/codex-remote-feishu/internal/core/control"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
 )
 
@@ -13,6 +14,12 @@ func surfaceResumeEntryAllowsBackgroundRecovery(entry surfaceresume.Entry) bool 
 
 func surfaceAllowsDaemonLifecycleNotice(surface *state.SurfaceConsoleRecord) bool {
 	return !surfaceIsFeishuGroup(strings.TrimSpace(surfaceIDFromSurface(surface)))
+}
+
+func surfaceResumeEntryAllowsOnDemandRecovery(entry surfaceresume.Entry, action control.Action) bool {
+	return surfaceResumeEntryIsFeishuGroup(entry) &&
+		action.Kind == control.ActionTextMessage &&
+		strings.TrimSpace(action.SurfaceSessionID) == strings.TrimSpace(entry.SurfaceSessionID)
 }
 
 func surfaceResumeEntryIsFeishuGroup(entry surfaceresume.Entry) bool {

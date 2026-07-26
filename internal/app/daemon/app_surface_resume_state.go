@@ -847,6 +847,9 @@ func (a *App) gateUngatedManagedHeadlessResumeOutcomeEventsLocked(events []event
 			if !isHeadlessRestoreFailureNoticeCode(event.Notice.Code) {
 				break
 			}
+			if _, ok := a.consumeGroupOnDemandResumeContinuationLocked(event.SurfaceSessionID); ok {
+				break
+			}
 			displayCode, emit := a.recordSurfaceResumeFailureLocked(event.SurfaceSessionID, event.Notice.Code, now)
 			if !emit {
 				continue

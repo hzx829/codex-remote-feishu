@@ -256,6 +256,14 @@ func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.A
 		a.syncWorkspaceSurfaceContextFilesLocked()
 		return inlineResult
 	}
+	if events, handled := a.maybeStartFeishuGroupOnDemandResumeLocked(action); handled {
+		a.handleUIEventsLocked(ctx, events)
+		a.syncSurfaceResumeStateLocked(nil)
+		a.syncClaudeWorkspaceProfileStateLocked()
+		a.syncBotCapabilitySettingsStateLocked()
+		a.syncWorkspaceSurfaceContextFilesLocked()
+		return nil
+	}
 	events := a.applyIngressActionLocked(action)
 	contract := control.ResolveFeishuFrontstageActionContract(action)
 	inlineResult, appendEvents := a.synchronousCurrentCardActionResultLocked(action, contract, events)
@@ -521,6 +529,13 @@ func (a *App) onHello(ctx context.Context, hello agentproto.Hello) {
 	connectEvents := a.service.ApplyInstanceConnected(inst.InstanceID)
 	connectEvents = a.gateUngatedManagedHeadlessResumeOutcomeEventsLocked(connectEvents, now)
 	a.handleUIEventsLocked(ctx, connectEvents)
+	if replayEvents := a.replayGroupOnDemandResumeContinuationsLocked(inst.InstanceID, now); len(replayEvents) != 0 {
+		a.handleUIEventsLocked(ctx, replayEvents)
+		a.syncSurfaceResumeStateLocked(nil)
+		a.syncClaudeWorkspaceProfileStateLocked()
+		a.syncBotCapabilitySettingsStateLocked()
+		a.syncWorkspaceSurfaceContextFilesLocked()
+	}
 	if inst.Source == "vscode" {
 		a.invalidateVSCodeCompatibilityCacheLocked()
 	}

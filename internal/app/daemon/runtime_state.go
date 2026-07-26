@@ -10,6 +10,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/botcapabilitysettings"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/claudeworkspaceprofile"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/surfaceresume"
+	"github.com/kxn/codex-remote-feishu/internal/core/control"
 )
 
 type surfaceResumeRecoveryState struct {
@@ -36,6 +37,7 @@ type vscodeMigrationFlowRecord struct {
 type surfaceResumeRuntimeState struct {
 	store                       *surfaceresume.Store
 	recovery                    map[string]*surfaceResumeRecoveryState
+	groupOnDemandContinuations  map[string]*groupOnDemandResumeContinuation
 	vscodeMigrationFlows        map[string]*vscodeMigrationFlowRecord
 	vscodeMigrationNextSeq      int64
 	vscodeResumeNotices         map[string]bool
@@ -44,6 +46,12 @@ type surfaceResumeRuntimeState struct {
 	startupRefreshPending       map[string]bool
 	startupRefreshSeen          bool
 	workspaceContextRoots       map[string]string
+}
+
+type groupOnDemandResumeContinuation struct {
+	Action    control.Action
+	ExpireAt  time.Time
+	CreatedAt time.Time
 }
 
 type claudeWorkspaceProfileRuntimeState struct {
@@ -90,6 +98,7 @@ type feishuRuntimeState struct {
 func newSurfaceResumeRuntimeState() surfaceResumeRuntimeState {
 	return surfaceResumeRuntimeState{
 		recovery:                    map[string]*surfaceResumeRecoveryState{},
+		groupOnDemandContinuations:  map[string]*groupOnDemandResumeContinuation{},
 		vscodeMigrationFlows:        map[string]*vscodeMigrationFlowRecord{},
 		vscodeResumeNotices:         map[string]bool{},
 		vscodeDetachedPromptScanDue: true,

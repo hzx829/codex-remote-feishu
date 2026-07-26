@@ -315,8 +315,19 @@ type FeishuRoomContextRecord struct {
 	WorkspaceUpdatedBy       string
 	WorkspaceUpdatedAt       time.Time
 	WorkspaceResetGeneration int
+	ActiveLock               *FeishuRoomActiveLockRecord
 	GatewayIDs               map[string]bool
 	SurfaceSessionIDs        map[string]bool
+}
+
+type FeishuRoomActiveLockRecord struct {
+	SurfaceSessionID string
+	InstanceID       string
+	ThreadID         string
+	TurnID           string
+	QueueItemID      string
+	Reason           string
+	UpdatedAt        time.Time
 }
 
 type ReviewSessionPhase string

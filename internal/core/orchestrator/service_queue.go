@@ -263,6 +263,9 @@ func (s *Service) dispatchNext(surface *state.SurfaceConsoleRecord) []eventcontr
 	if s.progress.instanceHasCompact(inst.InstanceID) {
 		return nil
 	}
+	if blocked := s.blockFeishuRoomActiveDispatch(surface); blocked != nil {
+		return blocked
+	}
 
 	queueID := surface.QueuedQueueItemIDs[0]
 	item := surface.QueueItems[queueID]
@@ -431,6 +434,9 @@ func (s *Service) markRemoteTurnRunning(instanceID string, event agentproto.Even
 		binding.StartedAt = s.now().UTC()
 	}
 	item.Status = state.QueueItemRunning
+	if room := s.ensureFeishuRoomContextForSurface(surface); room != nil {
+		s.refreshFeishuRoomActiveLock(room, surface, "running")
+	}
 	events := s.pendingInputEvents(surface, control.PendingInputState{
 		QueueItemID: item.ID,
 		Status:      string(item.Status),

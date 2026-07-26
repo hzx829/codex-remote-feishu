@@ -77,6 +77,7 @@ func (s *Service) clearSurfaceActiveQueueItem(surface *state.SurfaceConsoleRecor
 	if queueItemID != "" && strings.TrimSpace(surface.ActiveQueueItemID) != queueItemID {
 		return
 	}
+	s.releaseFeishuRoomActiveLock(surface, queueItemID)
 	surface.ActiveQueueItemID = ""
 }
 
@@ -86,6 +87,9 @@ func (s *Service) activateSurfaceQueueItemDispatchWithBinding(surface *state.Sur
 	}
 	item.Status = state.QueueItemDispatching
 	s.setSurfaceActiveQueueItem(surface, item.ID)
+	if room := s.ensureFeishuRoomContextForSurface(surface); room != nil {
+		s.refreshFeishuRoomActiveLock(room, surface, "dispatching")
+	}
 	if binding != nil {
 		binding.Status = string(item.Status)
 		s.bindPendingRemoteTurn(binding.InstanceID, binding)

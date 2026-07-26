@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
 	"github.com/kxn/codex-remote-feishu/internal/core/eventcontract"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
@@ -404,6 +405,367 @@ func TestRoomWorkspaceSwitchByAdminResetsSameRoomSurfaces(t *testing.T) {
 	}
 }
 
+func TestRoomActiveLockBlocksSecondSameRoomSurfaceDispatch(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	running := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	running.ActiveQueueItemID = "queue-running"
+	running.QueueItems["queue-running"] = &state.QueueItemRecord{ID: "queue-running", Status: state.QueueItemRunning}
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		MessageID:        "msg-2",
+		Text:             "继续处理",
+	})
+
+	if hasAgentCommand(events) {
+		t.Fatalf("same-room active lock should block agent dispatch, got %#v", events)
+	}
+	if noticeCode(events, "room_workspace_active") == "" {
+		t.Fatalf("expected room active notice, got %#v", events)
+	}
+	second := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	if second.ActiveQueueItemID != "" {
+		t.Fatalf("blocked surface should not gain active queue item, got %q", second.ActiveQueueItemID)
+	}
+	if len(second.QueuedQueueItemIDs) != 1 {
+		t.Fatalf("blocked surface should keep queued item for later retry, got %#v", second.QueuedQueueItemIDs)
+	}
+}
+
+func TestRoomActiveLockDoesNotBlockDifferentRoomDispatch(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_other",
+		GatewayID:        "app-1",
+		ChatID:           "oc_other",
+		ActorUserID:      "ou_other",
+		WorkspaceKey:     "/data/dl/web",
+	})
+	running := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	running.ActiveQueueItemID = "queue-running"
+	running.QueueItems["queue-running"] = &state.QueueItemRecord{ID: "queue-running", Status: state.QueueItemRunning}
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-1:chat:oc_other",
+		GatewayID:        "app-1",
+		ChatID:           "oc_other",
+		ActorUserID:      "ou_other",
+		MessageID:        "msg-other",
+		Text:             "另一个群继续处理",
+	})
+
+	if !hasAgentCommand(events) {
+		t.Fatalf("different room should dispatch normally, got %#v", events)
+	}
+}
+
+func TestRoomActiveLockReleaseAllowsSameRoomSurfaceDispatch(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	firstEvents := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		MessageID:        "msg-1",
+		Text:             "先处理",
+	})
+	if !hasAgentCommand(firstEvents) {
+		t.Fatalf("first surface should dispatch, got %#v", firstEvents)
+	}
+	first := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	activeID := first.ActiveQueueItemID
+	if activeID == "" {
+		t.Fatal("expected first surface to have active queue item")
+	}
+	svc.clearSurfaceActiveQueueItem(first, activeID)
+
+	secondEvents := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		MessageID:        "msg-2",
+		Text:             "再处理",
+	})
+
+	if !hasAgentCommand(secondEvents) {
+		t.Fatalf("same-room surface should dispatch after lock release, got %#v", secondEvents)
+	}
+}
+
+func TestRoomActiveLockBlocksAutoContinueDispatch(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	running := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	running.ActiveQueueItemID = "queue-running"
+	running.QueueItems["queue-running"] = &state.QueueItemRecord{ID: "queue-running", Status: state.QueueItemRunning}
+	second := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	second.AutoContinue.Enabled = true
+	second.AutoContinue.Episode = &state.PendingAutoContinueEpisodeRecord{
+		EpisodeID:    "autocontinue-1",
+		InstanceID:   "inst-droid-b",
+		State:        state.AutoContinueEpisodeScheduled,
+		PendingDueAt: svc.now(),
+	}
+
+	events := svc.maybeDispatchPendingAutoContinue(second, svc.now())
+
+	if hasAgentCommand(events) {
+		t.Fatalf("same-room active lock should block auto-continue dispatch, got %#v", events)
+	}
+	if noticeCode(events, "room_workspace_active") == "" {
+		t.Fatalf("expected room active notice, got %#v", events)
+	}
+	if second.ActiveQueueItemID != "" {
+		t.Fatalf("blocked auto-continue should not create active queue item, got %q", second.ActiveQueueItemID)
+	}
+	if second.AutoContinue.Episode == nil || second.AutoContinue.Episode.State != state.AutoContinueEpisodeScheduled {
+		t.Fatalf("blocked auto-continue should remain scheduled, got %#v", second.AutoContinue.Episode)
+	}
+
+	repeated := svc.maybeDispatchPendingAutoContinue(second, svc.now())
+	if noticeCode(repeated, "room_workspace_active") != "" {
+		t.Fatalf("repeated blocked auto-continue tick should not resend room active notice, got %#v", repeated)
+	}
+}
+
+func TestRoomActiveLockBlocksAutoWhipWithoutConsumingPending(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	running := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	running.ActiveQueueItemID = "queue-running"
+	running.QueueItems["queue-running"] = &state.QueueItemRecord{ID: "queue-running", Status: state.QueueItemRunning}
+	second := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	second.AutoWhip.Enabled = true
+	second.AutoWhip.PendingReason = state.AutoWhipReasonIncompleteStop
+	second.AutoWhip.PendingDueAt = svc.now()
+	second.AutoWhip.ConsecutiveCount = 1
+	second.AutoWhip.PendingReplyToMessageID = "msg-root"
+
+	events := svc.maybeDispatchPendingAutoWhip(second, svc.now())
+
+	if hasAgentCommand(events) {
+		t.Fatalf("same-room active lock should block auto-whip dispatch, got %#v", events)
+	}
+	if noticeCode(events, "room_workspace_active") == "" {
+		t.Fatalf("expected room active notice, got %#v", events)
+	}
+	if second.AutoWhip.PendingReason != state.AutoWhipReasonIncompleteStop || second.AutoWhip.PendingDueAt.IsZero() {
+		t.Fatalf("blocked auto-whip should keep pending retry, got %#v", second.AutoWhip)
+	}
+	if len(second.QueuedQueueItemIDs) != 0 {
+		t.Fatalf("blocked auto-whip should not enqueue a queue item, got %#v", second.QueuedQueueItemIDs)
+	}
+
+	repeated := svc.maybeDispatchPendingAutoWhip(second, svc.now())
+	if noticeCode(repeated, "room_workspace_active") != "" {
+		t.Fatalf("repeated blocked auto-whip tick should not resend room active notice, got %#v", repeated)
+	}
+}
+
+func TestRoomActiveLockRefreshesOnTurnStarted(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		MessageID:        "msg-1",
+		Text:             "先处理",
+	})
+	if !hasAgentCommand(events) {
+		t.Fatalf("expected initial dispatch, got %#v", events)
+	}
+
+	svc.ApplyAgentEvent("inst-droid-a", agentproto.Event{
+		Kind:     agentproto.EventTurnStarted,
+		ThreadID: "thread-droid-a",
+		TurnID:   "turn-1",
+		Initiator: agentproto.Initiator{
+			Kind:             agentproto.InitiatorRemoteSurface,
+			SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		},
+	})
+
+	room := svc.root.FeishuRoomContexts["feishu:chat:oc_room"]
+	if room == nil || room.ActiveLock == nil {
+		t.Fatalf("expected active lock, got %#v", room)
+	}
+	if room.ActiveLock.ThreadID != "thread-droid-a" || room.ActiveLock.TurnID != "turn-1" || room.ActiveLock.Reason != "running" {
+		t.Fatalf("active lock = %#v, want turn/thread running lock", room.ActiveLock)
+	}
+}
+
+func TestRoomActiveLockStaleRecordDoesNotBlockDispatch(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	room := svc.root.FeishuRoomContexts["feishu:chat:oc_room"]
+	room.ActiveLock = &state.FeishuRoomActiveLockRecord{
+		SurfaceSessionID: "feishu:app-missing:chat:oc_room",
+		InstanceID:       "inst-missing",
+		QueueItemID:      "queue-missing",
+		Reason:           "running",
+		UpdatedAt:        svc.now(),
+	}
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		MessageID:        "msg-1",
+		Text:             "继续处理",
+	})
+
+	if !hasAgentCommand(events) {
+		t.Fatalf("stale active lock should not block dispatch, got %#v", events)
+	}
+	if room.ActiveLock == nil || room.ActiveLock.SurfaceSessionID != "feishu:app-1:chat:oc_room" {
+		t.Fatalf("expected stale lock to be replaced by current dispatch lock, got %#v", room.ActiveLock)
+	}
+}
+
+func TestRoomActiveLockRoomWorkspaceResetClearsStaleRecord(t *testing.T) {
+	authorizer := &fakeChatAdminAuthorizer{allowed: true}
+	svc := newRoomWorkspaceTestService(t)
+	svc.config.ChatAdminAuthorizer = authorizer
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	room := svc.root.FeishuRoomContexts["feishu:chat:oc_room"]
+	room.ActiveLock = &state.FeishuRoomActiveLockRecord{
+		SurfaceSessionID: "feishu:app-missing:chat:oc_room",
+		InstanceID:       "inst-missing",
+		QueueItemID:      "queue-missing",
+		Reason:           "running",
+		UpdatedAt:        svc.now(),
+	}
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/web",
+	})
+
+	if noticeCode(events, "workspace_switched") == "" {
+		t.Fatalf("expected workspace switch to complete, got %#v", events)
+	}
+	if room.ActiveLock != nil {
+		t.Fatalf("room workspace reset should clear stale active lock, got %#v", room.ActiveLock)
+	}
+}
+
 func TestPrivateWorkspaceAttachDoesNotCreateRoomBindingOrAdminCheck(t *testing.T) {
 	authorizer := &fakeChatAdminAuthorizer{allowed: false}
 	svc := newRoomWorkspaceTestService(t)
@@ -479,6 +841,15 @@ func noticeCode(events []eventcontract.Event, code string) string {
 func noticeTextContains(events []eventcontract.Event, code, text string) bool {
 	for _, event := range events {
 		if event.Notice != nil && event.Notice.Code == code && strings.Contains(event.Notice.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAgentCommand(events []eventcontract.Event) bool {
+	for _, event := range events {
+		if event.Kind == eventcontract.KindAgentCommand {
 			return true
 		}
 	}

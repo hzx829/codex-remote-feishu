@@ -257,6 +257,9 @@ func (s *Service) maybeDispatchPendingAutoContinue(surface *state.SurfaceConsole
 	if inst == nil || !inst.Online || inst.ActiveTurnID != "" || s.hasPendingRemoteTurn(inst.InstanceID) || surface.ActiveQueueItemID != "" {
 		return nil
 	}
+	if blocked := s.blockFeishuRoomActiveAutoDispatch(surface); blocked != nil {
+		return blocked
+	}
 	return s.dispatchAutoContinueEpisode(surface, inst, episode)
 }
 

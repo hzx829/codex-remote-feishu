@@ -17,6 +17,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/core/orchestrator"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
 	relayruntime "github.com/kxn/codex-remote-feishu/internal/runtime"
+	"github.com/kxn/codex-remote-feishu/internal/testutil"
 )
 
 const testCanonicalResumeWorkspace = "/tmp/codex-remote/workspace-demo"
@@ -1386,14 +1387,14 @@ func TestDaemonHeadlessResumePassesStableWorkspaceRootToLaunch(t *testing.T) {
 		Threads: nil,
 	}})
 
-	if captured.WorkDir != repoRoot {
+	if !testutil.SamePath(captured.WorkDir, repoRoot) {
 		t.Fatalf("expected headless launch to start from stable workspace root, got %#v", captured)
 	}
 	snapshot := app.service.SurfaceSnapshot("surface-1")
 	if snapshot == nil || snapshot.PendingHeadless.InstanceID == "" {
 		t.Fatalf("expected pending headless launch after daemon resume, got %#v", snapshot)
 	}
-	if snapshot.PendingHeadless.WorkspaceKey != repoRoot || snapshot.PendingHeadless.ThreadCWD != repoWeb {
+	if !testutil.SamePath(snapshot.PendingHeadless.WorkspaceKey, repoRoot) || !testutil.SamePath(snapshot.PendingHeadless.ThreadCWD, repoWeb) {
 		t.Fatalf("expected pending headless resume to keep stable workspace root separate from last active cwd, got %#v", snapshot.PendingHeadless)
 	}
 }

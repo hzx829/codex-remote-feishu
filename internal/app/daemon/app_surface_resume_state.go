@@ -412,17 +412,28 @@ func (a *App) markVSCodeDetachedPromptScanDueLocked() {
 }
 
 func sameSurfaceResumeRecoveryTarget(left, right surfaceresume.Entry) bool {
-	return strings.TrimSpace(left.SurfaceSessionID) == strings.TrimSpace(right.SurfaceSessionID) &&
+	commonMatch := strings.TrimSpace(left.SurfaceSessionID) == strings.TrimSpace(right.SurfaceSessionID) &&
 		strings.TrimSpace(left.ProductMode) == strings.TrimSpace(right.ProductMode) &&
 		state.NormalizeHeadlessBackend(agentproto.Backend(left.Backend)) == state.NormalizeHeadlessBackend(agentproto.Backend(right.Backend)) &&
 		strings.TrimSpace(left.CodexProviderID) == strings.TrimSpace(right.CodexProviderID) &&
 		strings.TrimSpace(left.ClaudeProfileID) == strings.TrimSpace(right.ClaudeProfileID) &&
-		strings.TrimSpace(left.ResumeInstanceID) == strings.TrimSpace(right.ResumeInstanceID) &&
-		strings.TrimSpace(left.ResumeThreadID) == strings.TrimSpace(right.ResumeThreadID) &&
-		state.NormalizeWorkspaceKey(left.ResumeThreadCWD) == state.NormalizeWorkspaceKey(right.ResumeThreadCWD) &&
-		state.NormalizeWorkspaceKey(left.ResumeWorkspaceKey) == state.NormalizeWorkspaceKey(right.ResumeWorkspaceKey) &&
 		strings.TrimSpace(left.ResumeRouteMode) == strings.TrimSpace(right.ResumeRouteMode) &&
 		left.ResumeHeadless == right.ResumeHeadless
+	if !commonMatch {
+		return false
+	}
+	switch {
+	case state.IsVSCodeProductMode(state.ProductMode(left.ProductMode)) || state.IsVSCodeProductMode(state.ProductMode(right.ProductMode)):
+		return state.IsVSCodeProductMode(state.ProductMode(left.ProductMode)) &&
+			state.IsVSCodeProductMode(state.ProductMode(right.ProductMode)) &&
+			strings.TrimSpace(left.ResumeInstanceID) == strings.TrimSpace(right.ResumeInstanceID)
+	case state.IsHeadlessProductMode(state.ProductMode(left.ProductMode)) && state.IsHeadlessProductMode(state.ProductMode(right.ProductMode)):
+		return strings.TrimSpace(left.ResumeThreadID) == strings.TrimSpace(right.ResumeThreadID) &&
+			state.NormalizeWorkspaceKey(left.ResumeThreadCWD) == state.NormalizeWorkspaceKey(right.ResumeThreadCWD) &&
+			state.NormalizeWorkspaceKey(left.ResumeWorkspaceKey) == state.NormalizeWorkspaceKey(right.ResumeWorkspaceKey)
+	default:
+		return false
+	}
 }
 
 func surfaceResumeEntryNeedsRecovery(entry surfaceresume.Entry) bool {
@@ -438,6 +449,9 @@ func surfaceResumeEntryNeedsRecovery(entry surfaceresume.Entry) bool {
 
 func surfaceResumeRecoveryDue(recovery *surfaceResumeRecoveryState, now time.Time) bool {
 	if recovery == nil {
+		return false
+	}
+	if strings.TrimSpace(recovery.TerminalFailureCode) != "" {
 		return false
 	}
 	return recovery.NextAttemptAt.IsZero() || !now.Before(recovery.NextAttemptAt)
@@ -583,9 +597,9 @@ func (a *App) maybeRecoverVSCodeSurfacesLocked(now time.Time) []eventcontract.Ev
 			events = append(events, restoreEvents...)
 			updatedSurfaceIDs = append(updatedSurfaceIDs, surfaceID)
 		case orchestrator.SurfaceResumeStatusFailed:
-			a.setSurfaceResumeBackoffLocked(surfaceID, result.FailureCode, now)
-			notice := orchestrator.NoticeForVSCodeSurfaceResumeFailure(result.FailureCode)
-			if notice != nil {
+			displayCode, emit := a.recordSurfaceResumeFailureLocked(surfaceID, result.FailureCode, now)
+			notice := orchestrator.NoticeForVSCodeSurfaceResumeFailure(displayCode)
+			if emit && notice != nil {
 				events = append(events, eventcontract.Event{
 					Kind:             eventcontract.KindNotice,
 					SurfaceSessionID: surfaceID,
@@ -680,6 +694,7 @@ func (a *App) clearSurfaceResumeBackoffLocked(surfaceID string) {
 	recovery.LastFailureCode = ""
 	recovery.StickyFailureCode = ""
 	recovery.LastNoticeCode = ""
+	recovery.TerminalFailureCode = ""
 }
 
 func (a *App) clearSurfaceResumeAttemptProgressLocked(surfaceID string) {
@@ -705,7 +720,8 @@ func (a *App) setSurfaceResumeBackoffLocked(surfaceID, code string, now time.Tim
 func surfaceResumeFailureSpecificity(code string) int {
 	switch strings.TrimSpace(code) {
 	case "headless_restore_provider_unavailable",
-		"headless_restore_claude_profile_unavailable":
+		"headless_restore_claude_profile_unavailable",
+		"headless_restore_workspace_missing":
 		return 3
 	case "headless_restore_runtime_unavailable":
 		return 2
@@ -721,6 +737,25 @@ func shouldUpgradeSurfaceResumeStickyFailure(current, next string) bool {
 	return surfaceResumeFailureSpecificity(next) > surfaceResumeFailureSpecificity(current)
 }
 
+func isTerminalSurfaceResumeFailure(code string) bool {
+	switch strings.TrimSpace(code) {
+	case "headless_restore_workspace_missing",
+		"headless_restore_thread_not_found",
+		"headless_restore_thread_cwd_missing",
+		"headless_restore_provider_unavailable",
+		"headless_restore_claude_profile_unavailable",
+		"headless_restore_runtime_unavailable",
+		"thread_not_found",
+		"thread_cwd_missing",
+		"workspace_not_found",
+		"surface_resume_target_not_found",
+		"surface_resume_instance_not_found":
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *App) recordSurfaceResumeFailureLocked(surfaceID, code string, now time.Time) (string, bool) {
 	recovery := a.surfaceResumeRuntime.recovery[strings.TrimSpace(surfaceID)]
 	if recovery == nil {
@@ -730,6 +765,9 @@ func (a *App) recordSurfaceResumeFailureLocked(surfaceID, code string, now time.
 	recovery.LastAttemptAt = now
 	recovery.NextAttemptAt = now.Add(surfaceResumeRetryBackoff)
 	recovery.LastFailureCode = code
+	if isTerminalSurfaceResumeFailure(code) {
+		recovery.TerminalFailureCode = code
+	}
 	if shouldUpgradeSurfaceResumeStickyFailure(recovery.StickyFailureCode, code) {
 		recovery.StickyFailureCode = code
 	}
@@ -802,6 +840,7 @@ func (a *App) recordManagedHeadlessResumeOutcomeEventsLocked(events []eventcontr
 			"headless_restore_provider_unavailable",
 			"headless_restore_claude_profile_unavailable",
 			"headless_restore_runtime_unavailable",
+			"headless_restore_workspace_missing",
 			"headless_restore_start_failed",
 			"headless_restore_start_timeout":
 			a.recordSurfaceResumeFailureLocked(event.SurfaceSessionID, event.Notice.Code, now)

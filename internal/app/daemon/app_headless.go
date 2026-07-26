@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -171,6 +172,21 @@ func (a *App) startManagedHeadless(command control.DaemonCommand) []eventcontrac
 	if workDir == "" {
 		workDir = strings.TrimSpace(cfg.Paths.StateDir)
 	}
+	if command.AutoRestore {
+		if err := validateHeadlessWorkDir(workDir); err != nil {
+			return a.handleManagedHeadlessLaunchFailure(command, agentproto.ErrorInfoFromError(err, agentproto.ErrorInfo{
+				Code:             "headless_workspace_missing",
+				Layer:            "daemon",
+				Stage:            "headless_start",
+				Operation:        "start_headless",
+				Message:          "恢复会话的工作目录不存在或不可用。",
+				Details:          workDir,
+				SurfaceSessionID: command.SurfaceSessionID,
+				ThreadID:         command.ThreadID,
+				Retryable:        false,
+			}), now)
+		}
+	}
 
 	pid, err := a.startHeadless(relayruntime.HeadlessLaunchOptions{
 		BinaryPath: cfg.BinaryPath,
@@ -214,6 +230,21 @@ func (a *App) startManagedHeadless(command control.DaemonCommand) []eventcontrac
 		workDir,
 	)
 	return a.service.HandleHeadlessLaunchStarted(command.SurfaceSessionID, command.InstanceID, pid)
+}
+
+func validateHeadlessWorkDir(workDir string) error {
+	workDir = strings.TrimSpace(workDir)
+	if workDir == "" {
+		return nil
+	}
+	info, err := os.Stat(workDir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("headless workdir is not a directory: %s", workDir)
+	}
+	return nil
 }
 
 func (a *App) handleManagedHeadlessLaunchFailure(command control.DaemonCommand, err error, now time.Time) []eventcontract.Event {

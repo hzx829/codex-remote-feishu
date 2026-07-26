@@ -3,11 +3,13 @@ package daemon
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	headlessruntime "github.com/kxn/codex-remote-feishu/internal/app/daemon/headlessruntime"
+	"github.com/kxn/codex-remote-feishu/internal/app/daemon/surfaceresume"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
@@ -84,6 +86,67 @@ func TestDaemonStartsPreselectedHeadlessForGlobalThreadUse(t *testing.T) {
 	snapshot = app.service.SurfaceSnapshot("surface-1")
 	if snapshot == nil || snapshot.Attachment.InstanceID == "" || snapshot.Attachment.SelectedThreadID != "thread-1" || snapshot.PendingHeadless.InstanceID != "" {
 		t.Fatalf("expected preselected headless hello to auto-attach target thread, got %#v", snapshot)
+	}
+}
+
+func TestDaemonAutoRestoreMissingWorkspaceFailsBeforeHeadlessLaunch(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	missingWorkspace := filepath.Join(stateDir, "deleted-workspace")
+	putSurfaceResumeStateForTest(t, stateDir, surfaceresume.Entry{
+		SurfaceSessionID:   "surface-1",
+		GatewayID:          "app-1",
+		ChatID:             "chat-1",
+		ActorUserID:        "user-1",
+		ProductMode:        "normal",
+		Backend:            "codex",
+		Verbosity:          "normal",
+		ResumeThreadID:     "thread-1",
+		ResumeThreadTitle:  "临时测试",
+		ResumeThreadCWD:    missingWorkspace,
+		ResumeWorkspaceKey: missingWorkspace,
+		ResumeRouteMode:    "pinned",
+		ResumeHeadless:     true,
+	})
+	app := newRestoreHintTestApp(stateDir)
+	surface := app.service.Surface("surface-1")
+	if surface == nil {
+		t.Fatal("expected materialized surface")
+	}
+	surface.PendingHeadless = &state.HeadlessLaunchRecord{
+		InstanceID:   "inst-restore",
+		ThreadID:     "thread-1",
+		WorkspaceKey: missingWorkspace,
+		ThreadCWD:    missingWorkspace,
+		Backend:      agentproto.BackendCodex,
+		Status:       state.HeadlessLaunchStarting,
+		Purpose:      state.HeadlessLaunchPurposeThreadRestore,
+		AutoRestore:  true,
+	}
+	launchCalled := false
+	app.startHeadless = func(relayruntime.HeadlessLaunchOptions) (int, error) {
+		launchCalled = true
+		return 0, errors.New("launch should not be reached for a missing restore workspace")
+	}
+
+	events := app.startManagedHeadless(control.DaemonCommand{
+		Kind:             control.DaemonCommandStartHeadless,
+		SurfaceSessionID: "surface-1",
+		InstanceID:       "inst-restore",
+		ThreadID:         "thread-1",
+		ThreadTitle:      "临时测试",
+		WorkspaceKey:     missingWorkspace,
+		ThreadCWD:        missingWorkspace,
+		Backend:          agentproto.BackendCodex,
+		AutoRestore:      true,
+	})
+
+	if launchCalled {
+		t.Fatal("expected missing restore workspace to fail before invoking headless launcher")
+	}
+	if len(events) != 1 || events[0].Notice == nil || events[0].Notice.Code != "headless_restore_workspace_missing" {
+		t.Fatalf("expected workspace missing restore notice, got %#v", events)
 	}
 }
 

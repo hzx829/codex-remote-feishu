@@ -1207,6 +1207,29 @@ func TestDaemonShutdownContinuesFinalNoticeFanoutAfterTimeout(t *testing.T) {
 	}
 }
 
+func TestDaemonShutdownNoticeSkipsFeishuGroupSurfaces(t *testing.T) {
+	app := New(":0", ":0", &recordingGateway{}, agentproto.ServerIdentity{})
+	app.service.MaterializeSurface("feishu:app-1:user:ou_user", "app-1", "oc_p2p", "ou_user")
+	app.service.MaterializeSurface("feishu:app-1:chat:oc_room", "app-1", "oc_room", "ou_user")
+	app.service.MaterializeSurface("surface-1", "", "chat-1", "user-1")
+
+	events := app.beginShutdownNotices()
+
+	got := map[string]bool{}
+	for _, event := range events {
+		got[event.SurfaceSessionID] = true
+	}
+	if got["feishu:app-1:chat:oc_room"] {
+		t.Fatalf("expected Feishu group surface to skip shutdown notice, got %#v", events)
+	}
+	if !got["feishu:app-1:user:ou_user"] {
+		t.Fatalf("expected Feishu p2p surface to receive shutdown notice, got %#v", events)
+	}
+	if !got["surface-1"] {
+		t.Fatalf("expected non-Feishu surface to keep shutdown notice, got %#v", events)
+	}
+}
+
 func TestDaemonIgnoresActionsAfterShutdownStarts(t *testing.T) {
 	gateway := &recordingGateway{}
 	app := New(":0", ":0", gateway, agentproto.ServerIdentity{})

@@ -115,6 +115,9 @@ func (a *App) beginShutdownNotices() []eventcontract.Event {
 		if surface == nil {
 			continue
 		}
+		if !surfaceAllowsDaemonLifecycleNotice(surface) {
+			continue
+		}
 		surfaceID := strings.TrimSpace(surface.SurfaceSessionID)
 		if surfaceID == "" {
 			continue

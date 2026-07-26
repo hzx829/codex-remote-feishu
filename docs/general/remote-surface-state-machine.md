@@ -1610,7 +1610,7 @@ transport degraded retained attachment
    2. `/stop` 只返回 `stop_instance_offline` 提示，不伪造已发送 interrupt
 6. reconnect 只恢复实例在线和 follow 评估，不会因为 queued item 还在就抢先重派；必须等 preserved turn 自己 `completed/failed` 后，后续 queued work 才会继续出队。
 7. 如果该 surface 的 `surface resume state` 仍保留 `ResumeHeadless=true` 的 concrete thread-restore 目标，hard disconnect 回到 `R0 Detached` 后会重新进入同一条 headless recovery 主链里的 exact-thread continuation 判定。
-8. daemon graceful shutdown 也不是 `transport_degraded`。当前实现会在真正停掉 Feishu gateway 前，对内存里已知的 surface best-effort 广播单条 `daemon_shutting_down` notice；如果某个 surface 或 gateway 发送失败，只记录日志，不阻塞最终退出。
+8. daemon graceful shutdown 也不是 `transport_degraded`。当前实现会在真正停掉 Feishu gateway 前，对内存里允许 daemon lifecycle notice 的 surface best-effort 发送单条 `daemon_shutting_down` notice；Feishu 群聊 surface 会被跳过，Feishu 私聊与非 Feishu surface 保持现有行为。如果某个 surface 或 gateway 发送失败，只记录日志，不阻塞最终退出。
 9. 这几类提示当前统一归类为 `global runtime` 独立车道，而不是 `owner-flow` 或 `turn-owned`：
    1. 真正脱离当前 owner-card 上下文的 surface resume / VS Code resume failure
    2. 真正脱离当前 owner-card 上下文的 `open VS Code` prompt

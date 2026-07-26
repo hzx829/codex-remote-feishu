@@ -278,6 +278,43 @@ func TestHeadlessRestoreFailureNoticeWorkspaceBusyUsesGenericRestoreText(t *test
 	}
 }
 
+func TestHeadlessRestoreFailureNoticeAcceptsCanonicalWorkspaceBusyCode(t *testing.T) {
+	notice := NoticeForHeadlessRestoreFailure("headless_restore_workspace_busy")
+	if notice == nil || notice.Code != "headless_restore_workspace_busy" {
+		t.Fatalf("expected canonical workspace-busy code to retain its failure kind, got %#v", notice)
+	}
+}
+
+func TestTryAutoResumeHeadlessSurfaceReturnsFailureWhenVisibleAttachIsWorkspaceBusy(t *testing.T) {
+	now := time.Date(2026, 7, 26, 18, 0, 0, 0, time.UTC)
+	svc := newServiceForTest(&now)
+	svc.MaterializeSurfaceResumeContract("surface-1", "app-1", "chat-1", "user-1", state.HeadlessCodexSurfaceBackendContract("default"), state.SurfaceVerbosityNormal, state.PlanModeSettingOff)
+	svc.MaterializeSurfaceResumeContract("surface-2", "app-2", "chat-2", "user-2", state.HeadlessCodexSurfaceBackendContract("default"), state.SurfaceVerbosityNormal, state.PlanModeSettingOff)
+	svc.UpsertInstance(&state.InstanceRecord{
+		InstanceID:    "inst-1",
+		WorkspaceKey:  "/data/dl/repo",
+		WorkspaceRoot: "/data/dl/repo",
+		Backend:       agentproto.BackendCodex,
+		Online:        true,
+		Threads: map[string]*state.ThreadRecord{
+			"thread-1": {ThreadID: "thread-1", CWD: "/data/dl/repo", Loaded: true},
+		},
+	})
+	if !svc.claimWorkspace(svc.root.Surfaces["surface-2"], "/data/dl/repo") {
+		t.Fatal("expected competing surface to claim workspace")
+	}
+
+	events, result := svc.TryAutoResumeHeadlessSurface("surface-1", SurfaceResumeAttempt{
+		ThreadID:     "thread-1",
+		ThreadCWD:    "/data/dl/repo",
+		WorkspaceKey: "/data/dl/repo",
+		Backend:      agentproto.BackendCodex,
+	}, true)
+	if result.Status != SurfaceResumeStatusFailed || result.FailureCode != "workspace_busy" {
+		t.Fatalf("expected busy visible attach to report failure, got %#v events=%#v", result, events)
+	}
+}
+
 func TestSurfaceResumeFailureNoticeWorkspaceBusyUsesGenericRestoreText(t *testing.T) {
 	notice := surfaceResumeFailureNotice("workspace_busy")
 	if notice == nil {

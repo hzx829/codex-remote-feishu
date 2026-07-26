@@ -518,7 +518,7 @@ func (a *App) onHello(ctx context.Context, hello agentproto.Hello) {
 		inst.PID,
 	)
 	connectEvents := a.service.ApplyInstanceConnected(inst.InstanceID)
-	a.recordManagedHeadlessResumeOutcomeEventsLocked(connectEvents, now)
+	connectEvents = a.recordManagedHeadlessResumeOutcomeEventsLocked(connectEvents, now)
 	a.handleUIEventsLocked(ctx, connectEvents)
 	if inst.Source == "vscode" {
 		a.invalidateVSCodeCompatibilityCacheLocked()
@@ -648,7 +648,7 @@ func (a *App) onEvents(ctx context.Context, instanceID string, events []agentpro
 				RunHeadlessRecovery:                true,
 			})...)
 		}
-		a.recordManagedHeadlessResumeOutcomeEventsLocked(uiEvents, now)
+		uiEvents = a.recordManagedHeadlessResumeOutcomeEventsLocked(uiEvents, now)
 		a.handleUIEventsLocked(ctx, uiEvents)
 		if eventAffectsSurfaceResumeState(event) {
 			syncSurfaceResumeState = true
@@ -823,7 +823,7 @@ func (a *App) onTick(ctx context.Context, now time.Time) {
 	a.drainDaemonAsyncResultsLocked(ctx)
 	uiEvents := a.service.Tick(now)
 	uiEvents = append(uiEvents, a.maybeFlushUpgradeResultLocked(now)...)
-	a.recordManagedHeadlessResumeOutcomeEventsLocked(uiEvents, now)
+	uiEvents = a.recordManagedHeadlessResumeOutcomeEventsLocked(uiEvents, now)
 	a.handleUIEventsLocked(ctx, uiEvents)
 	a.syncManagedHeadlessLocked(now)
 	a.maybeRefreshIdleManagedHeadlessLocked(now)

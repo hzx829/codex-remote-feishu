@@ -826,15 +826,19 @@ func (a *App) shouldDeferHeadlessResumeUntilInitialRefreshLocked(entry surfacere
 	return strings.TrimSpace(inst.Source) != "headless"
 }
 
-func (a *App) recordManagedHeadlessResumeOutcomeEventsLocked(events []eventcontract.Event, now time.Time) {
+func (a *App) recordManagedHeadlessResumeOutcomeEventsLocked(events []eventcontract.Event, now time.Time) []eventcontract.Event {
+	filtered := make([]eventcontract.Event, 0, len(events))
 	for _, event := range events {
 		if event.Notice == nil {
+			filtered = append(filtered, event)
 			continue
 		}
 		switch strings.TrimSpace(event.Notice.Code) {
 		case "headless_restore_attached":
 			a.clearSurfaceResumeBackoffLocked(event.SurfaceSessionID)
+			filtered = append(filtered, event)
 		case "headless_restore_thread_busy",
+			"headless_restore_workspace_busy",
 			"headless_restore_thread_not_found",
 			"headless_restore_thread_cwd_missing",
 			"headless_restore_provider_unavailable",
@@ -843,9 +847,17 @@ func (a *App) recordManagedHeadlessResumeOutcomeEventsLocked(events []eventcontr
 			"headless_restore_workspace_missing",
 			"headless_restore_start_failed",
 			"headless_restore_start_timeout":
-			a.recordSurfaceResumeFailureLocked(event.SurfaceSessionID, event.Notice.Code, now)
+			if a.surfaceResumeRuntime.recovery[strings.TrimSpace(event.SurfaceSessionID)] == nil {
+				filtered = append(filtered, event)
+				continue
+			}
+			displayCode, emit := a.recordSurfaceResumeFailureLocked(event.SurfaceSessionID, event.Notice.Code, now)
+			filtered = append(filtered, rewriteHeadlessRestoreFailureEvents([]eventcontract.Event{event}, displayCode, emit)...)
+		default:
+			filtered = append(filtered, event)
 		}
 	}
+	return filtered
 }
 
 func (a *App) markStartupThreadsRefreshRequestedLocked(instanceID string) {

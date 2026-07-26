@@ -379,8 +379,8 @@ func TestApplyInstanceConnectedAutoRestoreHeadlessSuppressesReplayAndSelectionNo
 	if snapshot == nil || snapshot.Attachment.InstanceID != pending.InstanceID || snapshot.Attachment.SelectedThreadID != "thread-1" || snapshot.PendingHeadless.InstanceID != "" {
 		t.Fatalf("expected auto-restore headless connect to attach restored thread, got %#v", snapshot)
 	}
-	if len(connectEvents) != 1 || connectEvents[0].Notice == nil || connectEvents[0].Notice.Code != "headless_restore_attached" {
-		t.Fatalf("expected only recovery success notice, got %#v", connectEvents)
+	if len(connectEvents) != 2 || connectEvents[0].Notice == nil || connectEvents[0].Notice.Code != "headless_restore_attached" || connectEvents[1].Command == nil {
+		t.Fatalf("expected recovery success notice followed by a target-instance thread refresh, got %#v", connectEvents)
 	}
 	for _, event := range connectEvents {
 		if event.ThreadSelection != nil {
@@ -395,6 +395,51 @@ func TestApplyInstanceConnectedAutoRestoreHeadlessSuppressesReplayAndSelectionNo
 	}
 	if replay := svc.root.Instances[pending.InstanceID].Threads["thread-1"].UndeliveredReplay; replay != nil {
 		t.Fatalf("expected target replay cleared during auto-restore attach, got %#v", replay)
+	}
+}
+
+func TestApplyInstanceConnectedAutoRestoreUsesConnectedInstanceThreadWorkspace(t *testing.T) {
+	now := time.Date(2026, 7, 26, 18, 0, 0, 0, time.UTC)
+	svc := newServiceForTest(&now)
+	svc.MaterializeSurfaceResumeContract("surface-1", "app-1", "chat-1", "user-1", state.HeadlessCodexSurfaceBackendContract("default"), state.SurfaceVerbosityNormal, state.PlanModeSettingOff)
+	svc.root.Surfaces["surface-1"].PendingHeadless = &state.HeadlessLaunchRecord{
+		InstanceID:      "inst-trader",
+		ThreadID:        "thread-shared",
+		ThreadCWD:       "/data/dl/trader",
+		WorkspaceKey:    "/data/dl/trader",
+		AutoRestore:     true,
+		CodexProviderID: "default",
+	}
+	svc.UpsertInstance(&state.InstanceRecord{
+		InstanceID:    "inst-signal",
+		WorkspaceKey:  "/data/dl/signal",
+		WorkspaceRoot: "/data/dl/signal",
+		Backend:       agentproto.BackendCodex,
+		Online:        true,
+		Threads: map[string]*state.ThreadRecord{
+			"thread-shared": {ThreadID: "thread-shared", CWD: "/data/dl/signal", Loaded: true, LastUsedAt: now.Add(time.Minute)},
+		},
+	})
+	svc.UpsertInstance(&state.InstanceRecord{
+		InstanceID:    "inst-trader",
+		WorkspaceKey:  "/data/dl/trader",
+		WorkspaceRoot: "/data/dl/trader",
+		Backend:       agentproto.BackendCodex,
+		Online:        true,
+		Threads: map[string]*state.ThreadRecord{
+			"thread-shared": {ThreadID: "thread-shared", CWD: "/data/dl/trader", Loaded: true},
+		},
+	})
+
+	events := svc.ApplyInstanceConnected("inst-trader")
+	snapshot := svc.SurfaceSnapshot("surface-1")
+	if snapshot == nil || snapshot.Attachment.InstanceID != "inst-trader" || snapshot.WorkspaceKey != "/data/dl/trader" {
+		t.Fatalf("expected restore to stay bound to the connected instance workspace, got snapshot=%#v events=%#v", snapshot, events)
+	}
+	for _, event := range events {
+		if event.Notice != nil && event.Notice.Code == "headless_restore_workspace_busy" {
+			t.Fatalf("expected no cross-instance workspace-busy failure, got %#v", events)
+		}
 	}
 }
 

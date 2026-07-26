@@ -310,27 +310,23 @@ func (s *Service) attachHeadlessInstance(surface *state.SurfaceConsoleRecord, in
 		})
 	}
 	if strings.TrimSpace(pending.ThreadID) != "" {
-		view := s.mergedThreadView(surface, pending.ThreadID)
-		if view == nil {
-			thread := s.ensureThread(inst, pending.ThreadID)
-			if strings.TrimSpace(thread.Name) == "" {
-				thread.Name = strings.TrimSpace(pending.ThreadName)
-			}
-			if strings.TrimSpace(thread.Preview) == "" {
-				thread.Preview = strings.TrimSpace(pending.ThreadPreview)
-			}
-			if strings.TrimSpace(thread.WorkspaceKey) == "" {
-				thread.WorkspaceKey = normalizeWorkspaceClaimKey(firstNonEmpty(pending.WorkspaceKey, pending.ThreadCWD))
-			}
-			if strings.TrimSpace(thread.CWD) == "" {
-				thread.CWD = strings.TrimSpace(pending.ThreadCWD)
-			}
-			view = &mergedThreadView{
-				ThreadID: pending.ThreadID,
-				Backend:  state.EffectiveInstanceBackend(inst),
-				Inst:     inst,
-				Thread:   thread,
-			}
+		thread := s.ensureThread(inst, pending.ThreadID)
+		if strings.TrimSpace(thread.Name) == "" {
+			thread.Name = strings.TrimSpace(pending.ThreadName)
+		}
+		if strings.TrimSpace(thread.Preview) == "" {
+			thread.Preview = strings.TrimSpace(pending.ThreadPreview)
+		}
+		// This connection belongs to a concrete managed instance. A global
+		// merged view can pick the same thread ID from another instance and
+		// leak that instance's workspace into this restore attempt.
+		thread.WorkspaceKey = normalizeWorkspaceClaimKey(firstNonEmpty(pending.WorkspaceKey, pending.ThreadCWD))
+		thread.CWD = strings.TrimSpace(pending.ThreadCWD)
+		view := &mergedThreadView{
+			ThreadID: pending.ThreadID,
+			Backend:  state.EffectiveInstanceBackend(inst),
+			Inst:     inst,
+			Thread:   thread,
 		}
 		mode := attachSurfaceToKnownThreadDefault
 		if pending.AutoRestore {

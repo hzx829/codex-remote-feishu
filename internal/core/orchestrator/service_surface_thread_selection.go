@@ -638,6 +638,12 @@ func headlessRestoreFailureNotice(code string) *control.Notice {
 			Title: "恢复失败",
 			Text:  "当前恢复环境未准备好，暂时无法恢复之前会话。请检查本地配置后重试。",
 		}
+	case "headless_restore_workspace_missing":
+		return &control.Notice{
+			Code:  "headless_restore_workspace_missing",
+			Title: "恢复失败",
+			Text:  "之前会话的工作目录已经不存在，无法自动恢复。请发送 /list 重新选择工作区，或新建一个会话。",
+		}
 	case "workspace_busy":
 		return genericHeadlessRestoreFailureNotice("headless_restore_workspace_busy")
 	case "thread_busy":
@@ -670,6 +676,8 @@ func HeadlessRestoreLaunchFailureCode(err error) string {
 		return "headless_restore_claude_profile_unavailable"
 	case "headless_binary_missing", "headless_backend_missing":
 		return "headless_restore_runtime_unavailable"
+	case "headless_workspace_missing":
+		return "headless_restore_workspace_missing"
 	default:
 		return "headless_restore_start_failed"
 	}

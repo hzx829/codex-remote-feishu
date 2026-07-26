@@ -1342,6 +1342,11 @@ func TestDaemonHeadlessResumePassesStableWorkspaceRootToLaunch(t *testing.T) {
 	t.Parallel()
 
 	stateDir := t.TempDir()
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+	repoWeb := filepath.Join(repoRoot, "web")
+	if err := os.MkdirAll(repoWeb, 0o755); err != nil {
+		t.Fatalf("mkdir test workspace: %v", err)
+	}
 	putSurfaceResumeStateForTest(t, stateDir, surfaceresume.Entry{
 		SurfaceSessionID:   "surface-1",
 		GatewayID:          "app-1",
@@ -1351,8 +1356,8 @@ func TestDaemonHeadlessResumePassesStableWorkspaceRootToLaunch(t *testing.T) {
 		Backend:            "claude",
 		ResumeThreadID:     "thread-1",
 		ResumeThreadTitle:  "修复登录流程",
-		ResumeThreadCWD:    "/data/dl/repo/web",
-		ResumeWorkspaceKey: "/data/dl/repo",
+		ResumeThreadCWD:    repoWeb,
+		ResumeWorkspaceKey: repoRoot,
 		ResumeRouteMode:    "pinned",
 		ResumeHeadless:     true,
 	})
@@ -1381,14 +1386,14 @@ func TestDaemonHeadlessResumePassesStableWorkspaceRootToLaunch(t *testing.T) {
 		Threads: nil,
 	}})
 
-	if captured.WorkDir != "/data/dl/repo" {
+	if captured.WorkDir != repoRoot {
 		t.Fatalf("expected headless launch to start from stable workspace root, got %#v", captured)
 	}
 	snapshot := app.service.SurfaceSnapshot("surface-1")
 	if snapshot == nil || snapshot.PendingHeadless.InstanceID == "" {
 		t.Fatalf("expected pending headless launch after daemon resume, got %#v", snapshot)
 	}
-	if snapshot.PendingHeadless.WorkspaceKey != "/data/dl/repo" || snapshot.PendingHeadless.ThreadCWD != "/data/dl/repo/web" {
+	if snapshot.PendingHeadless.WorkspaceKey != repoRoot || snapshot.PendingHeadless.ThreadCWD != repoWeb {
 		t.Fatalf("expected pending headless resume to keep stable workspace root separate from last active cwd, got %#v", snapshot.PendingHeadless)
 	}
 }
@@ -1653,6 +1658,61 @@ func TestSurfaceResumeRecoverySyncPreservesBackoffForSameRecoveryTarget(t *testi
 	}
 }
 
+func TestSurfaceResumeRecoverySyncPreservesBackoffWhenHeadlessInstanceHintChanges(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	putSurfaceResumeStateForTest(t, stateDir, surfaceresume.Entry{
+		SurfaceSessionID:   "surface-1",
+		GatewayID:          "app-1",
+		ChatID:             "chat-1",
+		ActorUserID:        "user-1",
+		ProductMode:        "normal",
+		Backend:            "codex",
+		CodexProviderID:    "default",
+		Verbosity:          "normal",
+		ResumeInstanceID:   "inst-old",
+		ResumeThreadID:     "thread-1",
+		ResumeThreadTitle:  "修复登录流程",
+		ResumeThreadCWD:    "/data/dl/droid/web",
+		ResumeWorkspaceKey: "/data/dl/droid",
+		ResumeRouteMode:    "pinned",
+		ResumeHeadless:     true,
+	})
+	app := newRestoreHintTestApp(stateDir)
+	now := time.Date(2026, 6, 5, 3, 20, 0, 0, time.UTC)
+	displayCode, emit := app.recordSurfaceResumeFailureLocked("surface-1", "headless_restore_start_timeout", now)
+	if !emit || displayCode != "headless_restore_start_timeout" {
+		t.Fatalf("expected first restore failure to emit, display=%q emit=%t", displayCode, emit)
+	}
+	before := app.surfaceResumeRuntime.recovery["surface-1"]
+	if before == nil || before.NextAttemptAt.IsZero() || before.LastNoticeCode == "" || before.StickyFailureCode == "" {
+		t.Fatalf("expected recovery backoff and notice state to be recorded, got %#v", before)
+	}
+
+	entry, ok := app.surfaceResumeRuntime.store.Get("surface-1")
+	if !ok {
+		t.Fatal("expected stored resume entry")
+	}
+	entry.ResumeInstanceID = ""
+	entry.UpdatedAt = now.Add(time.Second)
+	if err := app.surfaceResumeRuntime.store.Put(entry); err != nil {
+		t.Fatalf("update surface resume state: %v", err)
+	}
+	app.syncSurfaceResumeRecoveryStateLocked()
+
+	after := app.surfaceResumeRuntime.recovery["surface-1"]
+	if after == nil {
+		t.Fatal("expected recovery state to remain")
+	}
+	if after.NextAttemptAt != before.NextAttemptAt || after.LastAttemptAt != before.LastAttemptAt || after.LastNoticeCode != before.LastNoticeCode || after.LastFailureCode != before.LastFailureCode || after.StickyFailureCode != before.StickyFailureCode {
+		t.Fatalf("expected headless instance hint changes to preserve recovery episode, before=%#v after=%#v", before, after)
+	}
+	if after.Entry.ResumeInstanceID != "" {
+		t.Fatalf("expected refreshed execution hint to update, got %#v", after.Entry)
+	}
+}
+
 func TestSurfaceResumeRecoveryDueGateSkipsBackoffEntries(t *testing.T) {
 	t.Parallel()
 
@@ -1687,6 +1747,91 @@ func TestSurfaceResumeRecoveryDueGateSkipsBackoffEntries(t *testing.T) {
 	}
 	if !app.hasDueHeadlessSurfaceRecoveryLocked(now.Add(time.Minute)) {
 		t.Fatal("expected headless recovery to become due after backoff")
+	}
+}
+
+func TestSurfaceResumeRecoveryTerminalFailureIsNotRunnableAfterBackoff(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	putSurfaceResumeStateForTest(t, stateDir, surfaceresume.Entry{
+		SurfaceSessionID:   "surface-1",
+		GatewayID:          "app-1",
+		ChatID:             "chat-1",
+		ActorUserID:        "user-1",
+		ProductMode:        "normal",
+		Backend:            "codex",
+		Verbosity:          "normal",
+		ResumeThreadID:     "thread-1",
+		ResumeThreadTitle:  "临时测试",
+		ResumeThreadCWD:    "/data/dl/deleted-workspace",
+		ResumeWorkspaceKey: "/data/dl/deleted-workspace",
+		ResumeRouteMode:    "pinned",
+		ResumeHeadless:     true,
+	})
+	app := newRestoreHintTestApp(stateDir)
+	now := time.Date(2026, 6, 5, 3, 20, 0, 0, time.UTC)
+	displayCode, emit := app.recordSurfaceResumeFailureLocked("surface-1", "headless_restore_workspace_missing", now)
+	if !emit || displayCode != "headless_restore_workspace_missing" {
+		t.Fatalf("expected first terminal restore failure to emit, display=%q emit=%t", displayCode, emit)
+	}
+
+	if app.hasRunnableHeadlessSurfaceRecoveryLocked(now.Add(time.Hour), true) {
+		t.Fatal("expected terminal workspace-missing recovery to stay non-runnable after backoff")
+	}
+}
+
+func TestVSCodeResumeFailureSuppressesRepeatedBusyNotice(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	putSurfaceResumeStateForTest(t, stateDir, surfaceresume.Entry{
+		SurfaceSessionID: "surface-1",
+		GatewayID:        "app-1",
+		ChatID:           "chat-1",
+		ActorUserID:      "user-1",
+		ProductMode:      "vscode",
+		Backend:          "vscode",
+		ResumeInstanceID: "inst-vscode-1",
+	})
+	app := newRestoreHintTestApp(stateDir)
+	app.service.UpsertInstance(&state.InstanceRecord{
+		InstanceID:    "inst-vscode-1",
+		DisplayName:   "droid",
+		WorkspaceRoot: "/data/dl/droid",
+		WorkspaceKey:  "/data/dl/droid",
+		ShortName:     "droid",
+		Source:        "vscode",
+		Backend:       agentproto.BackendCodex,
+		Online:        true,
+	})
+	app.service.MaterializeSurfaceResume(
+		"surface-owner",
+		"app-1",
+		"chat-owner",
+		"user-owner",
+		state.ProductModeVSCode,
+		agentproto.BackendCodex,
+		"",
+		state.SurfaceVerbosityNormal,
+		state.PlanModeSettingOff,
+	)
+	app.service.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachInstance,
+		SurfaceSessionID: "surface-owner",
+		ChatID:           "chat-owner",
+		ActorUserID:      "user-owner",
+		InstanceID:       "inst-vscode-1",
+	})
+
+	now := time.Date(2026, 6, 5, 3, 20, 0, 0, time.UTC)
+	events := app.maybeRecoverVSCodeSurfacesLocked(now)
+	if len(events) != 1 || events[0].Notice == nil || events[0].Notice.Code != "surface_resume_instance_busy" {
+		t.Fatalf("expected first vscode busy resume notice, got %#v", events)
+	}
+	events = app.maybeRecoverVSCodeSurfacesLocked(now.Add(time.Hour))
+	if len(events) != 0 {
+		t.Fatalf("expected repeated vscode busy failure to stay silent, got %#v", events)
 	}
 }
 

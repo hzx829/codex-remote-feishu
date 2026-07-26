@@ -76,7 +76,7 @@ func TestVSCodeModeListFiltersOutHeadlessInstances(t *testing.T) {
 	})
 	svc.ApplySurfaceAction(control.Action{
 		Kind:             control.ActionModeCommand,
-		SurfaceSessionID: "feishu:app-1:chat:1",
+		SurfaceSessionID: "surface-1",
 		ChatID:           "chat-1",
 		ActorUserID:      "user-1",
 		Text:             "/mode vscode",
@@ -84,7 +84,7 @@ func TestVSCodeModeListFiltersOutHeadlessInstances(t *testing.T) {
 
 	events := svc.ApplySurfaceAction(control.Action{
 		Kind:             control.ActionListInstances,
-		SurfaceSessionID: "feishu:app-1:chat:1",
+		SurfaceSessionID: "surface-1",
 		ChatID:           "chat-1",
 		ActorUserID:      "user-1",
 	})

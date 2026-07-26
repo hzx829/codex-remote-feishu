@@ -160,6 +160,9 @@ func ResolveFeishuCommandDisplayProfileForContext(ctx CatalogContext) FeishuComm
 	if !ok {
 		profile = feishuCommandDisplayProfiles["codex"]
 	}
+	if normalized.BotCapabilitySettingsReadOnly {
+		profile = profile.withAdditionalFamilies(botCapabilitySettingsReadOnlyFamilies()...)
+	}
 	return profile
 }
 
@@ -309,6 +312,19 @@ func commandSupportHiddenReject(familyID string, kind FeishuCommandSupportKind, 
 		DispatchAllowed: false,
 		SupportKind:     kind,
 		Note:            strings.TrimSpace(note),
+	}
+}
+
+func botCapabilitySettingsReadOnlyFamilies() []FeishuCommandDisplayFamilyProfile {
+	const note = "此设置请在和机器人的私聊中修改。"
+	return []FeishuCommandDisplayFamilyProfile{
+		commandSupportHiddenReject(FeishuCommandMode, FeishuCommandSupportReject, note),
+		commandSupportHiddenReject(FeishuCommandCodexProvider, FeishuCommandSupportReject, note),
+		commandSupportHiddenReject(FeishuCommandClaudeProfile, FeishuCommandSupportReject, note),
+		commandSupportHiddenReject(FeishuCommandModel, FeishuCommandSupportReject, note),
+		commandSupportHiddenReject(FeishuCommandReasoning, FeishuCommandSupportReject, note),
+		commandSupportHiddenReject(FeishuCommandAccess, FeishuCommandSupportReject, note),
+		commandSupportHiddenReject(FeishuCommandPlan, FeishuCommandSupportReject, note),
 	}
 }
 

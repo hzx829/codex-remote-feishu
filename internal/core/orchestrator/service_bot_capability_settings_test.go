@@ -1,11 +1,13 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
+	"github.com/kxn/codex-remote-feishu/internal/core/eventcontract"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
 )
 
@@ -291,4 +293,148 @@ func TestPrivateModelAndReasoningCommandsWriteBotCapabilitySettings(t *testing.T
 	if record.PromptOverride.ReasoningEffort != "low" {
 		t.Fatalf("bot reasoning = %q, want low", record.PromptOverride.ReasoningEffort)
 	}
+}
+
+func TestGroupCapabilityCommandsRejectMutation(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		kind control.ActionKind
+		text string
+	}{
+		{name: "mode", kind: control.ActionModeCommand, text: "/mode claude"},
+		{name: "codex provider", kind: control.ActionCodexProviderCommand, text: "/codexprovider team-proxy"},
+		{name: "claude profile", kind: control.ActionClaudeProfileCommand, text: "/claudeprofile devseek"},
+		{name: "model", kind: control.ActionModelCommand, text: "/model gpt-5.4 high"},
+		{name: "reasoning", kind: control.ActionReasoningCommand, text: "/reasoning low"},
+		{name: "access", kind: control.ActionAccessCommand, text: "/access confirm"},
+		{name: "plan", kind: control.ActionPlanCommand, text: "/plan on"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newServiceForTest(&now)
+			svc.MaterializeCodexProviders([]state.CodexProviderRecord{{ID: "team-proxy", Name: "Team Proxy"}})
+			svc.MaterializeClaudeProfiles([]state.ClaudeProfileRecord{{ID: "devseek", Name: "DevSeek"}})
+			svc.UpsertInstance(&state.InstanceRecord{
+				InstanceID:    "inst-1",
+				Backend:       agentproto.BackendCodex,
+				WorkspaceRoot: "/data/dl/project",
+				WorkspaceKey:  "/data/dl/project",
+				ModelCatalog: &agentproto.ModelCatalogSnapshot{
+					Entries: []agentproto.ModelCatalogEntry{{
+						Model: "gpt-5.4",
+						SupportedReasoningEfforts: []agentproto.ReasoningEffortOption{
+							{ReasoningEffort: "high"},
+							{ReasoningEffort: "low"},
+						},
+					}},
+				},
+				Threads: map[string]*state.ThreadRecord{},
+			})
+			svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")] = state.BotCapabilitySettingsRecord{
+				GatewayID:       "app-1",
+				ProductMode:     state.ProductModeNormal,
+				Backend:         agentproto.BackendCodex,
+				CodexProviderID: "default",
+				PlanMode:        state.PlanModeSettingOff,
+			}
+			svc.MaterializeSurfaceResumeWithCodexProvider("feishu:app-1:chat:oc_room", "app-1", "oc_room", "ou_user", state.ProductModeNormal, agentproto.BackendCodex, "default", "", state.SurfaceVerbosityNormal, state.PlanModeSettingOff)
+			surface := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+			surface.AttachedInstanceID = "inst-1"
+
+			events := svc.ApplySurfaceAction(control.Action{
+				Kind:             tc.kind,
+				SurfaceSessionID: surface.SurfaceSessionID,
+				GatewayID:        "app-1",
+				ChatID:           "oc_room",
+				ActorUserID:      "ou_user",
+				Text:             tc.text,
+			})
+
+			if !eventsContainNotice(events, "bot_capability_private_required", "私聊") {
+				t.Fatalf("expected private-chat rejection notice, got %#v", events)
+			}
+			record := svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")]
+			if record.Backend != agentproto.BackendCodex || record.CodexProviderID != "default" || record.ClaudeProfileID != "" ||
+				record.PromptOverride != (state.ModelConfigRecord{}) || record.PlanMode != state.PlanModeSettingOff || record.PlanModeOverrideSet {
+				t.Fatalf("bot capability settings mutated after %s: %#v", tc.text, record)
+			}
+			if surface.Backend != agentproto.BackendCodex || surface.CodexProviderID != "default" || surface.ClaudeProfileID != "" ||
+				surface.PromptOverride != (state.ModelConfigRecord{}) || surface.PlanMode != state.PlanModeSettingOff || surface.PlanModeOverrideSet {
+				t.Fatalf("group surface capability state mutated after %s: %#v", tc.text, surface)
+			}
+		})
+	}
+}
+
+func TestGroupContextCommandsRemainMutable(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	svc := newServiceForTest(&now)
+	svc.MaterializeSurfaceResumeWithCodexProvider("feishu:app-1:chat:oc_room", "app-1", "oc_room", "ou_user", state.ProductModeNormal, agentproto.BackendCodex, "default", "", state.SurfaceVerbosityNormal, state.PlanModeSettingOff)
+	surface := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+
+	svc.ApplySurfaceAction(control.Action{Kind: control.ActionAutoWhipCommand, SurfaceSessionID: surface.SurfaceSessionID, GatewayID: "app-1", ChatID: "oc_room", ActorUserID: "ou_user", Text: "/autowhip on"})
+	svc.ApplySurfaceAction(control.Action{Kind: control.ActionAutoContinueCommand, SurfaceSessionID: surface.SurfaceSessionID, GatewayID: "app-1", ChatID: "oc_room", ActorUserID: "ou_user", Text: "/autocontinue on"})
+
+	if !surface.AutoWhip.Enabled {
+		t.Fatalf("expected group autowhip to remain mutable")
+	}
+	if !surface.AutoContinue.Enabled {
+		t.Fatalf("expected group autocontinue to remain mutable")
+	}
+	if _, ok := svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")]; ok {
+		t.Fatalf("context commands should not create bot capability settings")
+	}
+}
+
+func TestGroupCapabilityCardCallbackRejectsInline(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	svc := newServiceForTest(&now)
+	svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")] = state.BotCapabilitySettingsRecord{
+		GatewayID:       "app-1",
+		ProductMode:     state.ProductModeNormal,
+		Backend:         agentproto.BackendCodex,
+		CodexProviderID: "default",
+	}
+	svc.MaterializeSurfaceResumeWithCodexProvider("feishu:app-1:chat:oc_room", "app-1", "oc_room", "ou_user", state.ProductModeNormal, agentproto.BackendCodex, "default", "", state.SurfaceVerbosityNormal, state.PlanModeSettingOff)
+	surface := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionModeCommand,
+		SurfaceSessionID: surface.SurfaceSessionID,
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_user",
+		Text:             "/mode claude",
+		CatalogFamilyID:  control.FeishuCommandMode,
+		CatalogVariantID: "mode.codex.normal",
+		CatalogBackend:   agentproto.BackendCodex,
+		Inbound:          &control.ActionInboundMeta{CardDaemonLifecycleID: "life-1"},
+	})
+
+	if len(events) != 1 || events[0].PageView == nil || !events[0].InlineReplaceCurrentCard {
+		t.Fatalf("expected inline page rejection, got %#v", events)
+	}
+	if !strings.Contains(commandCatalogSummaryText(events[0].PageView), "私聊") {
+		t.Fatalf("expected inline rejection to mention private chat, got %#v", events[0].PageView)
+	}
+	record := svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")]
+	if record.Backend != agentproto.BackendCodex || record.CodexProviderID != "default" {
+		t.Fatalf("bot capability settings mutated by card callback: %#v", record)
+	}
+	if surface.Backend != agentproto.BackendCodex || surface.CodexProviderID != "default" {
+		t.Fatalf("group surface capability state mutated by card callback: %#v", surface)
+	}
+}
+
+func eventsContainNotice(events []eventcontract.Event, code, text string) bool {
+	for _, event := range events {
+		if event.Notice == nil || event.Notice.Code != code {
+			continue
+		}
+		if text == "" || strings.Contains(event.Notice.Text, text) {
+			return true
+		}
+	}
+	return false
 }

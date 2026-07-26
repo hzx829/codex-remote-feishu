@@ -190,6 +190,45 @@ func TestResolveFeishuCommandDisplayProfileTracksModeSpecificFamilies(t *testing
 	}
 }
 
+func TestGroupCatalogContextHidesBotCapabilitySettings(t *testing.T) {
+	group := ResolveFeishuCommandDisplayProfileForContext(CatalogContext{
+		ProductMode:                   "normal",
+		BotCapabilitySettingsReadOnly: true,
+	})
+	for _, familyID := range []string{
+		FeishuCommandMode,
+		FeishuCommandCodexProvider,
+		FeishuCommandClaudeProfile,
+		FeishuCommandModel,
+		FeishuCommandReasoning,
+		FeishuCommandAccess,
+		FeishuCommandPlan,
+	} {
+		if group.IncludesFamily(familyID) {
+			t.Fatalf("group catalog should hide bot capability family %q", familyID)
+		}
+	}
+	for _, familyID := range []string{FeishuCommandAutoWhip, FeishuCommandAutoContinue, FeishuCommandVerbose} {
+		if !group.IncludesFamily(familyID) {
+			t.Fatalf("group catalog should keep context family %q", familyID)
+		}
+	}
+	page := BuildFeishuCommandMenuGroupPageViewForContext(FeishuCommandGroupSendSettings, CatalogContext{
+		ProductMode:                   "normal",
+		BotCapabilitySettingsReadOnly: true,
+	})
+	for _, command := range []string{"/mode", "/codexprovider", "/model", "/reasoning", "/access", "/plan"} {
+		if catalogContainsCommand(page, command) {
+			t.Fatalf("group send settings menu should hide %q: %#v", command, page.Sections)
+		}
+	}
+	for _, command := range []string{"/verbose"} {
+		if !catalogContainsCommand(page, command) {
+			t.Fatalf("group send settings menu should keep %q: %#v", command, page.Sections)
+		}
+	}
+}
+
 func TestResolveFeishuCommandDisplayProfileForContextUsesClaudeVisibleProfile(t *testing.T) {
 	profile := ResolveFeishuCommandDisplayProfileForContext(CatalogContext{
 		Backend:     agentproto.BackendClaude,

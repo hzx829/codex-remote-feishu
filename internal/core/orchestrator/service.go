@@ -323,6 +323,9 @@ func (s *Service) ApplySurfaceAction(action control.Action) []eventcontract.Even
 	case control.ActionFileMessage:
 		s.recordInboundSurfaceMessage(surface, action.MessageID, state.SurfaceMessageKindCard)
 	}
+	if blocked := s.rejectBotCapabilityMutationInReadOnlySurface(surface, action); blocked != nil {
+		return s.filterEventsForSurfaceVisibility(blocked)
+	}
 	if blocked := s.commandSupportBlocked(surface, action); blocked != nil {
 		return s.filterEventsForSurfaceVisibility(blocked)
 	}

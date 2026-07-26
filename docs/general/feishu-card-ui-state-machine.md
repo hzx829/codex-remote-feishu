@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-07-17`
-> Summary: 当前 live 的 Feishu 卡片 UI 已把 workspace/page/request/review 等 owner-flow 收口到稳定的 page / picker / request substrate；immediate `select_static` callback 的取值规则统一落在 `internal/adapter/feishu/selectflow`，按 `payload value -> form_value[field_name] -> option/options` 恢复，避免群聊回调把旧 option 误当成新选择；`/workspace list` 与 alias `/list` 在工作区已确定后也会把 `新建会话` 作为合法 session 选项，并默认选中它；bare `/model` 的下拉候选现在只来自当前 Codex instance 的动态 `model/list` 缓存，无缓存/旧 app-server/刷新失败时只保留手动输入；Codex/VS Code 下 bare `/reasoning` 现在以当前模型的动态 `supportedReasoningEfforts` 投影快捷项，目录不可校验时只保留自动并给出说明，不再展示全局硬编码推理档位；显式表单提交家族仍保持各自既有 submit 语义；`mcpServer/elicitation/request` 承载 MCP tool approval 时会归一成 `mcp_server_elicitation_approval`，飞书卡只开放本次/本会话授权，`persist=always` 仅提示暂不支持跨会话持久允许；`/mcpoauth <server>` 当前只发起 MCP OAuth RPC lifecycle，并用 append-only notice 展示授权链接与完成/失败结果，不进入 request card 或菜单 owner-flow。
+> Summary: 当前 live 的 Feishu 卡片 UI 已把 workspace/page/request/review 等 owner-flow 收口到稳定的 page / picker / request substrate；immediate `select_static` callback 的取值规则统一落在 `internal/adapter/feishu/selectflow`，按 `payload value -> form_value[field_name] -> option/options` 恢复，避免群聊回调把旧 option 误当成新选择；`/workspace list` 与 alias `/list` 在工作区已确定后也会把 `新建会话` 作为合法 session 选项，并默认选中它；bare `/model` 的下拉候选现在只来自当前 Codex instance 的动态 `model/list` 缓存，无缓存/旧 app-server/刷新失败时只保留手动输入；Codex/VS Code 下 bare `/reasoning` 现在以当前模型的动态 `supportedReasoningEfforts` 投影快捷项，目录不可校验时只保留自动并给出说明，不再展示全局硬编码推理档位；Feishu 群聊菜单会隐藏 bot 能力设置项，手输或卡片回调尝试修改 `/mode`、provider/profile、model/reasoning/access/plan 时同卡或 notice 提示到私聊修改；显式表单提交家族仍保持各自既有 submit 语义；`mcpServer/elicitation/request` 承载 MCP tool approval 时会归一成 `mcp_server_elicitation_approval`，飞书卡只开放本次/本会话授权，`persist=always` 仅提示暂不支持跨会话持久允许；`/mcpoauth <server>` 当前只发起 MCP OAuth RPC lifecycle，并用 append-only notice 展示授权链接与完成/失败结果，不进入 request card 或菜单 owner-flow。
 
 ## 1. 文档定位
 
@@ -505,6 +505,7 @@ MCP request 卡片当前新增的可视语义：
   - `claude` 的 `current_work` 分组当前只保留 `/stop`、`/new`、`/status`
   - `codex` 的 `send_settings` 分组当前可见 `/mode`、`/reasoning`、`/model`、`/access`、`/plan`、`/verbose`、`/autocontinue`、`/codexprovider`
   - `claude` 的 `send_settings` 分组当前保留 `/mode`、`/reasoning`、`/access`、`/plan`、`/verbose`、`/claudeprofile`
+  - Feishu 群聊 context 下，`send_settings` 会隐藏 `/mode`、provider/profile、`/model`、`/reasoning`、`/access`、`/plan` 这些 bot 能力设置，只保留 `/verbose` 等 surface/context 设置；同一卡片回调若仍尝试执行这些设置，会原卡显示私聊修改提示
   - `codex` 的 `common_tools` 分组当前可见 `/autowhip`、`/history`、`/cron`、`/sendfile`
   - `claude` 的 `common_tools` 分组当前显示 `/history` 与 `/sendfile`
   - `maintenance` 分组当前可见 `/admin`、`/upgrade`、`/debug`、`/help`、`/menu`

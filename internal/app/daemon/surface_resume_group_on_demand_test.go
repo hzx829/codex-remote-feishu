@@ -10,6 +10,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
 	relayruntime "github.com/kxn/codex-remote-feishu/internal/runtime"
+	"github.com/kxn/codex-remote-feishu/internal/testutil"
 )
 
 func TestFeishuGroupOnDemandTextStartsHeadlessAndDefersMessage(t *testing.T) {
@@ -52,7 +53,7 @@ func TestFeishuGroupOnDemandTextStartsHeadlessAndDefersMessage(t *testing.T) {
 	if snapshot == nil || snapshot.PendingHeadless.InstanceID == "" {
 		t.Fatalf("expected on-demand group text to start pending headless recovery, got %#v", snapshot)
 	}
-	if captured.InstanceID != snapshot.PendingHeadless.InstanceID || captured.WorkDir != workspaceDir {
+	if captured.InstanceID != snapshot.PendingHeadless.InstanceID || !testutil.SamePath(captured.WorkDir, workspaceDir) {
 		t.Fatalf("unexpected on-demand headless launch options: captured=%#v pending=%#v", captured, snapshot.PendingHeadless)
 	}
 	if len(app.service.PendingRemoteTurns()) != 0 {

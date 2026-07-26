@@ -434,7 +434,11 @@ func (s *Service) TryAutoResumeHeadlessSurface(surfaceID string, attempt Surface
 	if threadID != "" {
 		view := s.mergedThreadViewForBackend(surface, threadID, targetBackend, true)
 		if inst, code := s.resolveSurfaceResumeVisibleInstance(surface, view, strings.TrimSpace(attempt.InstanceID), targetBackend); inst != nil {
-			return s.attachSurfaceToKnownThread(surface, inst, view, attachSurfaceToKnownThreadSurfaceResume), SurfaceResumeResult{Status: SurfaceResumeStatusThreadAttached}
+			events := s.attachSurfaceToKnownThread(surface, inst, view, attachSurfaceToKnownThreadSurfaceResume)
+			if failureCode := surfaceResumeAttachFailureCode(events); failureCode != "" {
+				return events, SurfaceResumeResult{Status: SurfaceResumeStatusFailed, FailureCode: failureCode}
+			}
+			return events, SurfaceResumeResult{Status: SurfaceResumeStatusThreadAttached}
 		} else if code != "" {
 			failureCode = code
 		}
@@ -483,6 +487,25 @@ func (s *Service) TryAutoResumeHeadlessSurface(surfaceID string, attempt Surface
 		return nil, SurfaceResumeResult{Status: SurfaceResumeStatusWaiting}
 	}
 	return nil, SurfaceResumeResult{Status: SurfaceResumeStatusFailed, FailureCode: failureCode}
+}
+
+func surfaceResumeAttachFailureCode(events []eventcontract.Event) string {
+	for _, event := range events {
+		if event.Notice == nil {
+			continue
+		}
+		switch strings.TrimSpace(event.Notice.Code) {
+		case "surface_resume_workspace_busy":
+			return "workspace_busy"
+		case "surface_resume_workspace_instance_busy":
+			return "workspace_instance_busy"
+		case "surface_resume_thread_busy":
+			return "thread_busy"
+		case "surface_resume_target_not_found":
+			return "thread_not_found"
+		}
+	}
+	return ""
 }
 
 func (s *Service) tryAutoResumeManagedHeadlessTarget(surface *state.SurfaceConsoleRecord, attempt SurfaceResumeAttempt, allowMissingTargetFailure bool) ([]eventcontract.Event, SurfaceResumeResult) {
@@ -644,11 +667,11 @@ func headlessRestoreFailureNotice(code string) *control.Notice {
 			Title: "恢复失败",
 			Text:  "之前会话的工作目录已经不存在，无法自动恢复。请发送 /list 重新选择工作区，或新建一个会话。",
 		}
-	case "workspace_busy":
+	case "workspace_busy", "headless_restore_workspace_busy":
 		return genericHeadlessRestoreFailureNotice("headless_restore_workspace_busy")
-	case "thread_busy":
+	case "thread_busy", "headless_restore_thread_busy":
 		return genericHeadlessRestoreFailureNotice("headless_restore_thread_busy")
-	case "thread_cwd_missing":
+	case "thread_cwd_missing", "headless_restore_thread_cwd_missing":
 		return &control.Notice{
 			Code:  "headless_restore_thread_cwd_missing",
 			Title: "恢复失败",

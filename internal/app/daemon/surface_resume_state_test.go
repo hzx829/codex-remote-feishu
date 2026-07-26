@@ -14,6 +14,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/config"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
+	"github.com/kxn/codex-remote-feishu/internal/core/eventcontract"
 	"github.com/kxn/codex-remote-feishu/internal/core/orchestrator"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
 	relayruntime "github.com/kxn/codex-remote-feishu/internal/runtime"
@@ -21,6 +22,45 @@ import (
 )
 
 const testCanonicalResumeWorkspace = "/tmp/codex-remote/workspace-demo"
+
+func TestManagedHeadlessWorkspaceBusyIsReportedOncePerRecoveryEpisode(t *testing.T) {
+	app := New(":0", ":0", nil, serverIdentityForTest())
+	app.surfaceResumeRuntime.recovery["surface-1"] = &surfaceResumeRecoveryState{}
+	events := []eventcontract.Event{{
+		Kind:             eventcontract.KindNotice,
+		SurfaceSessionID: "surface-1",
+		Notice:           orchestrator.NoticeForHeadlessRestoreFailure("workspace_busy"),
+	}}
+	now := time.Date(2026, 7, 26, 18, 0, 0, 0, time.UTC)
+
+	first := app.gateUngatedManagedHeadlessResumeOutcomeEventsLocked(events, now)
+	if len(first) != 1 || first[0].Notice == nil || first[0].Notice.Code != "headless_restore_workspace_busy" {
+		t.Fatalf("expected first workspace-busy failure to be delivered, got %#v", first)
+	}
+	recovery := app.surfaceResumeRuntime.recovery["surface-1"]
+	if !recovery.NextAttemptAt.Equal(now.Add(surfaceResumeRetryBackoff)) || recovery.LastNoticeCode != "headless_restore_workspace_busy" {
+		t.Fatalf("expected workspace-busy failure to establish backoff and notice state, got %#v", recovery)
+	}
+
+	second := app.gateUngatedManagedHeadlessResumeOutcomeEventsLocked(events, now.Add(time.Second))
+	if len(second) != 0 {
+		t.Fatalf("expected duplicate managed headless failure to be suppressed, got %#v", second)
+	}
+}
+
+func TestManagedHeadlessFailureWithoutRecoveryStateStillDelivers(t *testing.T) {
+	app := New(":0", ":0", nil, serverIdentityForTest())
+	events := []eventcontract.Event{{
+		Kind:             eventcontract.KindNotice,
+		SurfaceSessionID: "surface-1",
+		Notice:           orchestrator.NoticeForHeadlessRestoreFailure("workspace_busy"),
+	}}
+
+	filtered := app.gateUngatedManagedHeadlessResumeOutcomeEventsLocked(events, time.Date(2026, 7, 26, 18, 5, 0, 0, time.UTC))
+	if len(filtered) != 1 || filtered[0].Notice == nil || filtered[0].Notice.Code != "headless_restore_workspace_busy" {
+		t.Fatalf("expected manual or non-recovery failure to stay deliverable, got %#v", filtered)
+	}
+}
 
 func TestSurfaceResumeStoreRoundTrip(t *testing.T) {
 	t.Parallel()

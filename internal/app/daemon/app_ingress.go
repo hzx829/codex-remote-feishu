@@ -664,7 +664,7 @@ func (a *App) onEvents(ctx context.Context, instanceID string, events []agentpro
 				RunHeadlessRecovery:                true,
 			})...)
 		}
-		a.recordManagedHeadlessResumeOutcomeEventsLocked(uiEvents, now)
+		uiEvents = a.gateUngatedManagedHeadlessResumeOutcomeEventsLocked(uiEvents, now)
 		a.handleUIEventsLocked(ctx, uiEvents)
 		if eventAffectsSurfaceResumeState(event) {
 			syncSurfaceResumeState = true

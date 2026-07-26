@@ -850,6 +850,9 @@ func (a *App) gateUngatedManagedHeadlessResumeOutcomeEventsLocked(events []event
 			if _, ok := a.consumeGroupOnDemandResumeContinuationLocked(event.SurfaceSessionID); ok {
 				break
 			}
+			if a.surfaceResumeRuntime.recovery[strings.TrimSpace(event.SurfaceSessionID)] == nil {
+				break
+			}
 			displayCode, emit := a.recordSurfaceResumeFailureLocked(event.SurfaceSessionID, event.Notice.Code, now)
 			if !emit {
 				continue

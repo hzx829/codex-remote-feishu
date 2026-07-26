@@ -96,6 +96,9 @@ func LoadStore(path string) (*Store, error) {
 		if strings.TrimSpace(key) != normalized.SurfaceSessionID {
 			store.dirty = true
 		}
+		if !SameEntryContent(entry, normalized) {
+			store.dirty = true
+		}
 		store.entries[key] = normalized
 	}
 	if canonical, changed := CanonicalizeEntries(store.entries); changed {
@@ -233,6 +236,9 @@ func NormalizeEntry(entry Entry) (Entry, bool) {
 	if !state.IsHeadlessProductMode(state.ProductMode(entry.ProductMode)) {
 		entry.ResumeHeadless = false
 	}
+	if entry.ResumeHeadless {
+		entry.ResumeWorkspaceKey = normalizeHeadlessResumeWorkspace(entry.ResumeWorkspaceKey, entry.ResumeThreadCWD)
+	}
 	if entry.SurfaceSessionID == "" {
 		return Entry{}, false
 	}
@@ -240,6 +246,20 @@ func NormalizeEntry(entry Entry) (Entry, bool) {
 		entry.UpdatedAt = entry.UpdatedAt.UTC()
 	}
 	return entry, true
+}
+
+func normalizeHeadlessResumeWorkspace(workspaceKey, threadCWD string) string {
+	workspaceKey = state.NormalizeWorkspaceKey(workspaceKey)
+	threadCWD = state.NormalizeWorkspaceKey(threadCWD)
+	if workspaceKey == "" || threadCWD == "" {
+		return state.ResolveWorkspaceKey(workspaceKey, threadCWD)
+	}
+	relative, err := filepath.Rel(workspaceKey, threadCWD)
+	if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return workspaceKey
+	}
+	// Headless exact-thread restore is owned by the selected thread path.
+	return threadCWD
 }
 
 func SameEntryContent(left, right Entry) bool {

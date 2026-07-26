@@ -99,7 +99,9 @@ func (s *Service) attachWorkspaceWithOptions(surface *state.SurfaceConsoleRecord
 			Text: noticeText,
 		},
 	})
-	events = append(events, s.autoPromptUseThread(surface, inst)...)
+	if !options.SuppressAutoUsePrompt {
+		events = append(events, s.autoPromptUseThread(surface, inst)...)
+	}
 	return events
 }
 

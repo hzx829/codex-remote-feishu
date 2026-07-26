@@ -207,6 +207,21 @@ func (s *Service) handleText(surface *state.SurfaceConsoleRecord, action control
 
 	inst := s.root.Instances[surface.AttachedInstanceID]
 	if inst == nil {
+		if s.surfaceIsHeadless(surface) && surfaceFeishuRoomID(surface) != "" {
+			if blocked := s.blockFeishuRoomActiveDispatch(surface); blocked != nil {
+				return blocked
+			}
+			workspaceKey := s.surfaceCurrentWorkspaceKey(surface)
+			if workspaceKey == "" {
+				return s.openTargetPickerForAction(surface, action, "", nil, action.MessageID, false)
+			}
+			events := s.attachWorkspaceWithOptions(surface, workspaceKey, attachWorkspaceOptions{SuppressAutoUsePrompt: true})
+			inst = s.root.Instances[surface.AttachedInstanceID]
+			if inst == nil {
+				return events
+			}
+			return append(events, s.handleText(surface, action)...)
+		}
 		return notice(surface, "not_attached", s.notAttachedText(surface))
 	}
 	reviewSession := s.activeReviewSession(surface)

@@ -112,13 +112,13 @@ Feishu 群聊 surface 之上现在还有一层 room context coordination record�
 4. 同一 `chatID` 下不同 gateway 的群 surface 在 V1 会进入同一个 room context；这是当前本机实测策略，不是 Feishu 官方跨 app 稳定性承诺。
 5. `workspaceClaims` 的 owner 已从单 `SurfaceSessionID` 扩展为 `surface` / `room`：私聊或非 room surface 继续以 surface 为 owner；群聊 surface 以 `feishu:chat:<chatID>` room 为 owner。
 6. 同一 room 下的多个群 surface 可以共享同一个 workspace claim；不同 room 或私聊 surface 对同一 workspace 仍会被判定 busy。
-7. room binding 是没有自身 workspace route 的 same-room surface 的最后一级 current-workspace fallback；因此第二个 bot 首次打开 `/use` / target picker 时会默认选中 room workspace，而不是回到全局列表第一项。
+7. room binding 是没有自身 workspace route 的 same-room surface 的最后一级 current-workspace fallback；因此第二个 bot 首次打开 `/use` / target picker 时会默认选中 room workspace，而不是回到全局列表第一项；若第二个 bot 在群里被 @ 并收到普通文本，文本入口也会先消费该 room workspace，复用 workspace attach SSOT 接管当前 bot 自己的 headless context，再把这条文本按新会话首条消息派发，不继承其它 bot 的 selected thread。
 8. room binding 的写入点收口在真正改变 workspace claim 的入口：workspace attach、attach instance、跨 workspace thread attach、fresh workspace prepare 进入成功路径后同步 room binding；target picker 只负责选择，confirm 后复用这些底层入口。
 9. room 已绑定且目标 workspace 不同时，切换前先确认当前 surface 可以安全离开，再检查同 room 是否存在 active/pending request、pending headless、active review、dispatching/running queue 或 instance active turn；命中 blocker 时拒绝，不调用管理员 API，也不 reset sibling surface。
 10. destructive room workspace change 必须通过注入的 Feishu chat admin authorizer；缺 authorizer、缺 actor、配置/API/权限失败或 actor 不是群主/用户管理员都会 fail closed，提示不能切换群 workspace。
 11. 管理员切换成功会 reset 同 room 其它 surface 的 context-bound runtime：attachment、selected thread、workspace claim、queue、staged image/file、pending request/capture、exec/reasoning progress、review session、plan proposal、target picker；触发切换的当前 surface 后续按目标 workspace 正常 attach/launch。
 12. instance claim 与 thread claim 仍是 surface 级全局独占，同 room 不共享实例或会话。
-13. room context 的 `ActiveLock` 是同 room workspace 执行互斥的 SSOT：dispatching 时写入 surface / instance / thread / turn / queue item evidence，turn started 后用真实 thread/turn 刷新；普通 queue、AutoContinue 与 AutoWhip 在派发前若发现其它 same-room surface 仍有 dispatching/running item 或 instance active turn，会保留当前 queued/pending 状态并返回 `room_workspace_active` notice；AutoContinue / AutoWhip 这类 tick 驱动入口会对该 notice 做短冷却，避免同一 active holder 持续刷屏。
+13. room context 的 `ActiveLock` 是同 room workspace 执行互斥的 SSOT：dispatching 时写入 surface / instance / thread / turn / queue item evidence，turn started 后用真实 thread/turn 刷新；普通 queue、未 attached 群 surface 的 room-workspace 文本自动接管、AutoContinue 与 AutoWhip 在派发前若发现其它 same-room surface 仍有 dispatching/running item 或 instance active turn，会保留当前 queued/pending 状态并返回 `room_workspace_active` notice；AutoContinue / AutoWhip 这类 tick 驱动入口会对该 notice 做短冷却，避免同一 active holder 持续刷屏。
 14. stale `ActiveLock` 不单独造成永久 busy：若锁指向的 surface 不存在或已无可证明 active work，下一次 same-room dispatch 检查会清掉并继续；room workspace reset 也会清掉 room active lock。
 15. 群聊 surface 的 effective capability settings 读取 gateway/bot 级 `BotCapabilitySettings`：`/mode`、provider/profile、model/reasoning/access/plan 这些 bot 能力默认值由私聊命令写入独立持久化 store；群聊 dispatch、headless launch contract 与 catalog context 使用该设置作为能力默认。群聊菜单会隐藏这些 bot 能力设置入口，手输或卡片回调尝试修改时返回 `bot_capability_private_required` 或同卡错误提示；群 surface 自身仍保存 workspace/session/queue/staged input/AutoWhip/AutoContinue 等 context runtime，不能把某个私聊 surface resume entry 当作机器人全局 SSOT。
 
@@ -309,13 +309,18 @@ surface 不是单一枚举，而是五层正交状态叠加。
    6. 若该 surface 的 `surface resume state` 里仍带有 `ResumeHeadless=true` 的 concrete thread-restore 目标，daemon 会在同一条 headless recovery 主链里先尝试 exact visible attach；只有 visible 路径没恢复成功时，才继续进入 managed-headless exact-thread continuation；`vscode` 不会进入这条分支。这里的 continuation 已按 backend 生效，不再只限 Codex。
 2. 这种 latent surface 在 route 维度上仍然是 `R0 Detached`，不是新的 route state。
 3. 当前 startup 阶段不会因为 resume target 元数据而在 materialize 当下直接进入 `R1~R5`；是否进入后台恢复、是否转入 `G1 PendingHeadlessStarting`，仍取决于 daemon 后续恢复调度与 surface recovery policy，而不是 materialize 本身。Feishu 群聊当前不进入后台恢复，后续只由被 @ 的 on-demand 路径承接。
-4. Feishu 群聊 on-demand 路径当前只在这些条件同时成立时从 `R0 Detached` 进入恢复：
+4. Feishu 群聊普通文本在 `R0 Detached` 且没有 `AttachedInstanceID` 时还有一条 room-workspace continuation：
+   1. 若同 room 尚未绑定 workspace，则直接打开现有 target picker / workspace 选择卡，不返回裸 `not_attached`。
+   2. 若同 room 已绑定 workspace，则先检查同 room active lock；命中时返回 `room_workspace_active`，不启动第二个 bot 的执行。
+   3. 未命中 active lock 时，文本入口通过 `attachWorkspaceWithOptions` 复用现有 workspace contract resolution / claim / room binding 路径接管当前 bot 自己的 headless context；这个即时派发路径会抑制 attach 后自动打开 `/use` picker，避免“已派发文本但又弹出选会话卡”的双 UI。
+   4. attach 成功后，同一条文本继续按 `R1 AttachedUnbound` 的 headless 普通文本规则隐式进入 `R5 NewThreadReady` 并创建新会话；它只继承 room workspace，不继承同 room 其它 bot 的 selected thread。
+5. Feishu 群聊 on-demand resume 路径当前只在这些条件同时成立时从 `R0 Detached` 进入恢复：
    1. 入站动作已经通过 gateway 的 @ 当前 bot gate。
    2. 动作是普通 `ActionTextMessage`，且没有附带文件。
    3. surface 是 Feishu group surface，当前没有 attached instance，也没有 pending headless。
    4. `surface resume state` 中存在 headless-compatible resume target。
    5. surface 不是 `vscode` mode；VS Code 群聊 lazy recovery 当前只返回不支持提示，不自动恢复。
-5. Feishu 群聊 on-demand 启动 headless 时，daemon 会把当前文本 action 作为短生命周期内存 continuation 保存到 `surfaceResumeRuntime`。headless attach 成功后，daemon 先删除 continuation，再绕过 on-demand gate 重新进入普通 ingress apply，使原消息按正常 queue/dispatch 发送；启动失败或 pending timeout 会清掉 continuation，并只把本次恢复失败反馈给当前交互。
+6. Feishu 群聊 on-demand resume 启动 headless 时，daemon 会把当前文本 action 作为短生命周期内存 continuation 保存到 `surfaceResumeRuntime`。headless attach 成功后，daemon 先删除 continuation，再绕过 on-demand gate 重新进入普通 ingress apply，使原消息按正常 queue/dispatch 发送；启动失败或 pending timeout 会清掉 continuation，并只把本次恢复失败反馈给当前交互。
 
 ### 3.2.1 thread 运行时状态 overlay
 
@@ -1144,6 +1149,8 @@ R0 Detached
   -- daemon startup latent headless surface + workspace fallback --> R1 AttachedUnbound
   -- daemon startup latent headless surface + waiting first refresh --> 保持 R0 Detached
   -- daemon startup latent vscode surface + exact instance resume --> R3 FollowWaiting 或 R4 FollowBound
+  -- Feishu 群聊 @ 普通文本(headless，同 room 无 workspace binding) --> 保持 R0 Detached，打开 target picker
+  -- Feishu 群聊 @ 普通文本(headless，同 room 已有 workspace binding) --> workspace attach 到 R1，再隐式进入 R5 并消费首条文本；若同 room active lock 命中则保持 R0 并提示 room_workspace_active
 
 R1 AttachedUnbound
   -- 普通文本(headless，workspace 已知) --> 隐式进入 R5 并立刻消费首条文本（R5 + E1/E2）

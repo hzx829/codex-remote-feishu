@@ -109,6 +109,117 @@ func TestRoomWorkspaceBindingDefaultsTargetPickerForNewSameRoomSurface(t *testin
 	}
 }
 
+func TestRoomWorkspaceFirstGroupTextOpensWorkspacePicker(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		MessageID:        "msg-1",
+		Text:             "hi",
+	})
+
+	if noticeCode(events, "not_attached") != "" {
+		t.Fatalf("first group text should not return not_attached, got %#v", events)
+	}
+	view := singleTargetPickerEvent(t, events)
+	if _, ok := targetPickerWorkspaceOption(view, "/data/dl/droid"); !ok {
+		t.Fatalf("expected workspace picker to include /data/dl/droid, got %#v", view.WorkspaceOptions)
+	}
+	surface := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	if surface.AttachedInstanceID != "" || surface.ClaimedWorkspaceKey != "" {
+		t.Fatalf("opening first workspace picker should not attach implicitly, got %#v", surface)
+	}
+}
+
+func TestRoomWorkspaceSecondBotTextInheritsRoomWorkspaceAndStartsOwnNewThread(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	first := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	first.SelectedThreadID = "thread-droid-a"
+	first.RouteMode = state.RouteModePinned
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		MessageID:        "msg-2",
+		Text:             "第二个机器人开始",
+	})
+
+	if noticeCode(events, "not_attached") != "" {
+		t.Fatalf("same-room text should not return not_attached, got %#v", events)
+	}
+	command := promptSendCommand(events)
+	if command == nil {
+		t.Fatalf("expected same-room second bot text to dispatch, got %#v", events)
+	}
+	if hasTargetPicker(events) {
+		t.Fatalf("same-room text dispatch should not also open a target picker, got %#v", events)
+	}
+	if command.Target.ThreadID != "" || !command.Target.CreateThreadIfMissing || command.Target.CWD != "/data/dl/droid" {
+		t.Fatalf("expected new-thread dispatch in room workspace, got target %#v", command.Target)
+	}
+	if len(command.Prompt.Inputs) != 1 || command.Prompt.Inputs[0].Text != "第二个机器人开始" {
+		t.Fatalf("unexpected prompt inputs: %#v", command.Prompt.Inputs)
+	}
+	second := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	if second.ClaimedWorkspaceKey != "/data/dl/droid" || second.AttachedInstanceID == "" {
+		t.Fatalf("expected second surface to inherit room workspace and attach, got %#v", second)
+	}
+	if second.SelectedThreadID == "thread-droid-a" {
+		t.Fatalf("second surface must not inherit first surface thread, got %q", second.SelectedThreadID)
+	}
+}
+
+func TestRoomWorkspaceSecondBotTextInheritedWorkspaceRespectsActiveLock(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	running := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+	running.ActiveQueueItemID = "queue-running"
+	running.QueueItems["queue-running"] = &state.QueueItemRecord{ID: "queue-running", Status: state.QueueItemRunning}
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		MessageID:        "msg-2",
+		Text:             "第二个机器人开始",
+	})
+
+	if promptSendCommand(events) != nil {
+		t.Fatalf("same-room active lock should block inherited workspace dispatch, got %#v", events)
+	}
+	if noticeCode(events, "room_workspace_active") == "" {
+		t.Fatalf("expected room active notice, got %#v", events)
+	}
+	second := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	if second.ActiveQueueItemID != "" {
+		t.Fatalf("blocked inherited dispatch should not gain active queue item, got %q", second.ActiveQueueItemID)
+	}
+}
+
 func TestRoomWorkspaceBindingRecordsGroupAttachInstance(t *testing.T) {
 	svc := newRoomWorkspaceTestService(t)
 
@@ -854,4 +965,22 @@ func hasAgentCommand(events []eventcontract.Event) bool {
 		}
 	}
 	return false
+}
+
+func hasTargetPicker(events []eventcontract.Event) bool {
+	for _, event := range events {
+		if event.TargetPickerView != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func promptSendCommand(events []eventcontract.Event) *agentproto.Command {
+	for _, event := range events {
+		if event.Kind == eventcontract.KindAgentCommand && event.Command != nil && event.Command.Kind == agentproto.CommandPromptSend {
+			return event.Command
+		}
+	}
+	return nil
 }

@@ -164,6 +164,7 @@ func (s *Service) startFreshWorkspaceHeadlessWithOverlayCleanup(surface *state.S
 		Purpose:               state.HeadlessLaunchPurposeFreshWorkspace,
 		PrepareNewThread:      prepareNewThread,
 	})
+	s.syncFeishuRoomWorkspaceBinding(surface, workspaceKey)
 	noticeTitle := "正在接入工作区"
 	noticeText := fmt.Sprintf("正在把 `%s` 接入为可用工作区，完成后你就可以直接发送文本开启新会话。", workspaceKey)
 	if prepareNewThread {

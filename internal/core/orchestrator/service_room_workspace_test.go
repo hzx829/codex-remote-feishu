@@ -233,6 +233,39 @@ func TestRoomWorkspaceTargetPickerNewThreadStartsIndependentHeadlessWhenOnlySibl
 	}
 }
 
+func TestRoomWorkspaceFreshPendingBindsRoomWorkspaceForSiblingText(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	svc.MaterializeSurface("feishu:app-1:chat:oc_room", "app-1", "oc_room", "ou_owner")
+	first := svc.root.Surfaces["feishu:app-1:chat:oc_room"]
+
+	events := svc.startFreshWorkspaceHeadless(first, "/data/dl/new")
+
+	if !hasStartHeadlessCommand(events) {
+		t.Fatalf("expected first bot to start fresh headless, got %#v", events)
+	}
+	if first.PendingHeadless == nil || first.PendingHeadless.WorkspaceKey != "/data/dl/new" {
+		t.Fatalf("expected first bot pending headless for new workspace, got %#v", first.PendingHeadless)
+	}
+	room := svc.root.FeishuRoomContexts["feishu:chat:oc_room"]
+	if room == nil || room.WorkspaceKey != "/data/dl/new" {
+		t.Fatalf("fresh pending should bind room workspace immediately, got %#v", room)
+	}
+
+	secondEvents := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTextMessage,
+		SurfaceSessionID: "feishu:app-2:chat:oc_room",
+		GatewayID:        "app-2",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		MessageID:        "msg-2",
+		Text:             "hi",
+	})
+
+	if hasTargetPicker(secondEvents) {
+		t.Fatalf("second same-room bot should inherit pending workspace instead of opening target picker, got %#v", secondEvents)
+	}
+}
+
 func TestRoomWorkspaceFirstGroupTextOpensWorkspacePicker(t *testing.T) {
 	svc := newRoomWorkspaceTestService(t)
 

@@ -389,7 +389,7 @@ func (a *App) syncSurfaceResumeRecoveryStateLocked() {
 		entries = a.surfaceResumeRuntime.store.Entries()
 	}
 	for surfaceID, entry := range entries {
-		if !surfaceResumeEntryNeedsRecovery(entry) {
+		if !surfaceResumeEntryNeedsRecovery(entry) || !surfaceResumeEntryAllowsBackgroundRecovery(entry) {
 			delete(a.surfaceResumeRuntime.recovery, surfaceID)
 			continue
 		}
@@ -401,7 +401,7 @@ func (a *App) syncSurfaceResumeRecoveryStateLocked() {
 		current.Entry = entry
 	}
 	for surfaceID := range a.surfaceResumeRuntime.recovery {
-		if entry, ok := entries[surfaceID]; !ok || !surfaceResumeEntryNeedsRecovery(entry) {
+		if entry, ok := entries[surfaceID]; !ok || !surfaceResumeEntryNeedsRecovery(entry) || !surfaceResumeEntryAllowsBackgroundRecovery(entry) {
 			delete(a.surfaceResumeRuntime.recovery, surfaceID)
 		}
 	}
@@ -630,6 +630,9 @@ func (a *App) maybePromptDetachedVSCodeSurfacesLocked() []eventcontract.Event {
 	events := make([]eventcontract.Event, 0, len(surfaceIDs))
 	for _, surfaceID := range surfaceIDs {
 		entry := entries[surfaceID]
+		if !surfaceResumeEntryAllowsBackgroundRecovery(entry) {
+			continue
+		}
 		if !state.IsVSCodeProductMode(state.ProductMode(entry.ProductMode)) {
 			continue
 		}

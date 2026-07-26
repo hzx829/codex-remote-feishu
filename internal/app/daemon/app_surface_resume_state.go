@@ -809,6 +809,54 @@ func rewriteHeadlessRestoreFailureEvents(events []eventcontract.Event, displayCo
 	return rewritten
 }
 
+func isHeadlessRestoreFailureNoticeCode(code string) bool {
+	switch strings.TrimSpace(code) {
+	case "headless_restore_thread_busy",
+		"headless_restore_workspace_busy",
+		"headless_restore_thread_not_found",
+		"headless_restore_thread_cwd_missing",
+		"headless_restore_provider_unavailable",
+		"headless_restore_claude_profile_unavailable",
+		"headless_restore_runtime_unavailable",
+		"headless_restore_workspace_missing",
+		"headless_restore_start_failed",
+		"headless_restore_start_timeout":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *App) gateUngatedManagedHeadlessResumeOutcomeEventsLocked(events []eventcontract.Event, now time.Time) []eventcontract.Event {
+	if len(events) == 0 {
+		return nil
+	}
+	filtered := make([]eventcontract.Event, 0, len(events))
+	for _, event := range events {
+		if event.Notice == nil {
+			filtered = append(filtered, event)
+			continue
+		}
+		switch strings.TrimSpace(event.Notice.Code) {
+		case "headless_restore_attached":
+			a.clearSurfaceResumeBackoffLocked(event.SurfaceSessionID)
+		default:
+			if !isHeadlessRestoreFailureNoticeCode(event.Notice.Code) {
+				break
+			}
+			displayCode, emit := a.recordSurfaceResumeFailureLocked(event.SurfaceSessionID, event.Notice.Code, now)
+			if !emit {
+				continue
+			}
+			if notice := orchestrator.NoticeForHeadlessRestoreFailure(displayCode); notice != nil {
+				event.Notice = notice
+			}
+		}
+		filtered = append(filtered, event)
+	}
+	return filtered
+}
+
 func (a *App) shouldDeferHeadlessResumeUntilInitialRefreshLocked(entry surfaceresume.Entry, allowMissingTargetFailure bool) bool {
 	if allowMissingTargetFailure {
 		return false
@@ -834,15 +882,10 @@ func (a *App) recordManagedHeadlessResumeOutcomeEventsLocked(events []eventcontr
 		switch strings.TrimSpace(event.Notice.Code) {
 		case "headless_restore_attached":
 			a.clearSurfaceResumeBackoffLocked(event.SurfaceSessionID)
-		case "headless_restore_thread_busy",
-			"headless_restore_thread_not_found",
-			"headless_restore_thread_cwd_missing",
-			"headless_restore_provider_unavailable",
-			"headless_restore_claude_profile_unavailable",
-			"headless_restore_runtime_unavailable",
-			"headless_restore_workspace_missing",
-			"headless_restore_start_failed",
-			"headless_restore_start_timeout":
+		default:
+			if !isHeadlessRestoreFailureNoticeCode(event.Notice.Code) {
+				continue
+			}
 			a.recordSurfaceResumeFailureLocked(event.SurfaceSessionID, event.Notice.Code, now)
 		}
 	}

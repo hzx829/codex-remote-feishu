@@ -519,7 +519,7 @@ func (a *App) onHello(ctx context.Context, hello agentproto.Hello) {
 		inst.PID,
 	)
 	connectEvents := a.service.ApplyInstanceConnected(inst.InstanceID)
-	a.recordManagedHeadlessResumeOutcomeEventsLocked(connectEvents, now)
+	connectEvents = a.gateUngatedManagedHeadlessResumeOutcomeEventsLocked(connectEvents, now)
 	a.handleUIEventsLocked(ctx, connectEvents)
 	if inst.Source == "vscode" {
 		a.invalidateVSCodeCompatibilityCacheLocked()
@@ -822,9 +822,8 @@ func (a *App) onTick(ctx context.Context, now time.Time) {
 		return
 	}
 	a.drainDaemonAsyncResultsLocked(ctx)
-	uiEvents := a.service.Tick(now)
+	uiEvents := a.gateUngatedManagedHeadlessResumeOutcomeEventsLocked(a.service.Tick(now), now)
 	uiEvents = append(uiEvents, a.maybeFlushUpgradeResultLocked(now)...)
-	a.recordManagedHeadlessResumeOutcomeEventsLocked(uiEvents, now)
 	a.handleUIEventsLocked(ctx, uiEvents)
 	a.syncManagedHeadlessLocked(now)
 	a.maybeRefreshIdleManagedHeadlessLocked(now)

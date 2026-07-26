@@ -7,6 +7,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu"
 	"github.com/kxn/codex-remote-feishu/internal/app/cronrepo"
 	cronrt "github.com/kxn/codex-remote-feishu/internal/app/cronruntime"
+	"github.com/kxn/codex-remote-feishu/internal/app/daemon/botcapabilitysettings"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/claudeworkspaceprofile"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/surfaceresume"
 )
@@ -47,6 +48,10 @@ type surfaceResumeRuntimeState struct {
 
 type claudeWorkspaceProfileRuntimeState struct {
 	store *claudeworkspaceprofile.Store
+}
+
+type botCapabilitySettingsRuntimeState struct {
+	store *botcapabilitysettings.Store
 }
 
 type daemonAsyncRuntimeState struct {

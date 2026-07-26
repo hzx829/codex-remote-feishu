@@ -99,6 +99,7 @@ func (s *Service) handleCodexProviderCommand(surface *state.SurfaceConsoleRecord
 	events = s.queueHeadlessContractRestart(events, surface, continuation)
 	events = append(events, s.finalizeDetachedSurface(surface)...)
 	s.setSurfaceCodexProviderID(surface, target.ID)
+	s.syncBotCapabilitySettingsFromSurface(surface)
 	if currentWorkspaceKey == "" {
 		text := fmt.Sprintf("已切换到 Codex Provider：%s。当前没有接管中的工作区。", targetLabel)
 		if commandCardOwnsInlineResult(action) {

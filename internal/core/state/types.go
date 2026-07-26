@@ -162,6 +162,7 @@ type Root struct {
 	Instances                       map[string]*InstanceRecord
 	Surfaces                        map[string]*SurfaceConsoleRecord
 	FeishuRoomContexts              map[string]*FeishuRoomContextRecord
+	BotCapabilitySettings           map[string]BotCapabilitySettingsRecord
 	WorkspaceDefaults               map[string]ModelConfigRecord
 	CodexProviders                  map[string]CodexProviderRecord
 	ClaudeProfiles                  map[string]ClaudeProfileRecord
@@ -177,6 +178,27 @@ type ModelConfigRecord struct {
 type ClaudeWorkspaceProfileSnapshotRecord struct {
 	ReasoningEffort string
 	AccessMode      string
+}
+
+type BotCapabilitySettingsRecord struct {
+	GatewayID           string
+	ProductMode         ProductMode
+	Backend             agentproto.Backend
+	CodexProviderID     string
+	ClaudeProfileID     string
+	PromptOverride      ModelConfigRecord
+	PlanMode            PlanModeSetting
+	PlanModeOverrideSet bool
+	UpdatedBy           string
+	UpdatedAt           time.Time
+}
+
+type SurfaceCapabilitySettings struct {
+	Contract            SurfaceBackendContract
+	PromptOverride      ModelConfigRecord
+	PlanMode            PlanModeSetting
+	PlanModeOverrideSet bool
+	Source              string
 }
 
 type InstanceRecord struct {
@@ -705,6 +727,7 @@ func NewRoot() *Root {
 		Instances:                       map[string]*InstanceRecord{},
 		Surfaces:                        map[string]*SurfaceConsoleRecord{},
 		FeishuRoomContexts:              map[string]*FeishuRoomContextRecord{},
+		BotCapabilitySettings:           map[string]BotCapabilitySettingsRecord{},
 		WorkspaceDefaults:               map[string]ModelConfigRecord{},
 		CodexProviders:                  map[string]CodexProviderRecord{},
 		ClaudeProfiles:                  map[string]ClaudeProfileRecord{},

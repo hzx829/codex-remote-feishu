@@ -270,6 +270,7 @@ func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.A
 	}
 	a.syncSurfaceResumeStateLocked(clearTargets)
 	a.syncClaudeWorkspaceProfileStateLocked()
+	a.syncBotCapabilitySettingsStateLocked()
 	a.syncWorkspaceSurfaceContextFilesLocked()
 	if action.Kind == control.ActionModeCommand {
 		after := a.service.SurfaceSnapshot(action.SurfaceSessionID)

@@ -218,6 +218,7 @@ func (s *Service) handleModeCommand(surface *state.SurfaceConsoleRecord, action 
 	default:
 		s.setSurfaceDesiredContract(surface, state.HeadlessCodexSurfaceBackendContract(surface.CodexProviderID))
 	}
+	s.syncBotCapabilitySettingsFromSurface(surface)
 	if currentWorkspaceKey != "" && state.IsHeadlessProductMode(target.ProductMode) {
 		s.transitionSurfaceRouteCore(surface, nil, surfaceRouteCoreState{WorkspaceKey: currentWorkspaceKey})
 	}
@@ -344,6 +345,7 @@ func (s *Service) handleClaudeProfileCommand(surface *state.SurfaceConsoleRecord
 	events = s.queueHeadlessContractRestart(events, surface, continuation)
 	events = append(events, s.finalizeDetachedSurface(surface)...)
 	s.setSurfaceClaudeProfileID(surface, target.ID)
+	s.syncBotCapabilitySettingsFromSurface(surface)
 	if currentWorkspaceKey == "" {
 		surface.PromptOverride = state.ModelConfigRecord{}
 		clearSurfacePlanModeOverride(surface)

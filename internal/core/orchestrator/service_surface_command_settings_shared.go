@@ -14,6 +14,7 @@ type surfaceSettingFeedback struct {
 
 func (s *Service) applySurfaceSettingChange(surface *state.SurfaceConsoleRecord, action control.Action, mutate func(), build func() surfaceSettingFeedback) []eventcontract.Event {
 	mutate()
+	s.syncBotCapabilitySettingsFromSurface(surface)
 	s.persistCurrentClaudeWorkspaceProfileSnapshot(surface)
 	feedback := build()
 	if commandCardOwnsInlineResult(action) {

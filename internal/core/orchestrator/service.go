@@ -253,7 +253,7 @@ func (s *Service) normalizeSurfaceProductMode(surface *state.SurfaceConsoleRecor
 	if surface == nil {
 		return state.ProductModeNormal
 	}
-	s.setSurfaceDesiredContract(surface, s.surfaceDesiredContract(surface))
+	s.setSurfaceDesiredContract(surface, state.SurfaceDesiredBackendContract(surface))
 	surface.Verbosity = state.NormalizeSurfaceVerbosity(surface.Verbosity)
 	surface.PlanMode = state.NormalizePlanModeSetting(surface.PlanMode)
 	return surface.ProductMode

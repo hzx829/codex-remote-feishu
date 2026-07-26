@@ -21,8 +21,9 @@ func (s *Service) resolveNextPromptSummary(inst *state.InstanceRecord, surface *
 	} else {
 		createThread = threadID == ""
 	}
+	settings := state.EffectiveSurfaceCapabilitySettings(s.root, surface)
 	if promptOverrideIsEmpty(override) {
-		override = surface.PromptOverride
+		override = settings.PromptOverride
 	}
 	threadTitle := ""
 	observedThreadAccessMode := ""
@@ -48,8 +49,8 @@ func (s *Service) resolveNextPromptSummary(inst *state.InstanceRecord, surface *
 		}
 	}
 	usesLocalRequestedOverrides := s.surfaceUsesLocalRequestedPromptOverrides(surface)
-	planModeOverrideSet := surface.PlanModeOverrideSet
-	effectivePlanMode := string(state.NormalizePlanModeSetting(surface.PlanMode))
+	planModeOverrideSet := settings.PlanModeOverrideSet
+	effectivePlanMode := string(state.NormalizePlanModeSetting(settings.PlanMode))
 	overridePlanMode := effectivePlanMode
 	if usesLocalRequestedOverrides && !planModeOverrideSet {
 		overridePlanMode = ""
@@ -122,15 +123,16 @@ func compactPromptOverride(value state.ModelConfigRecord) state.ModelConfigRecor
 }
 
 func (s *Service) resolveFrozenPromptOverride(inst *state.InstanceRecord, surface *state.SurfaceConsoleRecord, threadID, cwd string, override state.ModelConfigRecord) state.ModelConfigRecord {
+	settings := state.EffectiveSurfaceCapabilitySettings(s.root, surface)
 	if s.surfaceUsesLocalRequestedPromptOverrides(surface) {
 		if promptOverrideIsEmpty(override) && surface != nil {
-			override = surface.PromptOverride
+			override = settings.PromptOverride
 		}
 		return compactPromptOverride(override)
 	}
 	requestedOverride := compactPromptOverride(override)
 	if promptOverrideIsEmpty(requestedOverride) && surface != nil {
-		requestedOverride = compactPromptOverride(surface.PromptOverride)
+		requestedOverride = compactPromptOverride(settings.PromptOverride)
 	}
 	resolution := s.resolvePromptConfig(inst, surface, threadID, cwd, override)
 	return state.ModelConfigRecord{
@@ -141,22 +143,26 @@ func (s *Service) resolveFrozenPromptOverride(inst *state.InstanceRecord, surfac
 }
 
 func (s *Service) surfaceUsesLocalRequestedPromptOverrides(surface *state.SurfaceConsoleRecord) bool {
-	return surface != nil && state.IsVSCodeProductMode(s.normalizeSurfaceProductMode(surface))
+	if surface == nil {
+		return false
+	}
+	return state.IsVSCodeProductMode(state.EffectiveSurfaceCapabilitySettings(s.root, surface).Contract.ProductMode)
 }
 
 func (s *Service) freezePlanModeForPrompt(surface *state.SurfaceConsoleRecord) state.PlanModeSetting {
 	if surface == nil {
 		return ""
 	}
-	if state.IsVSCodeProductMode(s.normalizeSurfaceProductMode(surface)) && !surface.PlanModeOverrideSet {
+	settings := state.EffectiveSurfaceCapabilitySettings(s.root, surface)
+	if state.IsVSCodeProductMode(settings.Contract.ProductMode) && !settings.PlanModeOverrideSet {
 		return ""
 	}
-	return state.NormalizePlanModeSetting(surface.PlanMode)
+	return state.NormalizePlanModeSetting(settings.PlanMode)
 }
 
 func (s *Service) resolvePromptConfig(inst *state.InstanceRecord, surface *state.SurfaceConsoleRecord, threadID, cwd string, override state.ModelConfigRecord) promptConfigResolution {
 	if surface != nil && promptOverrideIsEmpty(override) {
-		override = surface.PromptOverride
+		override = state.EffectiveSurfaceCapabilitySettings(s.root, surface).PromptOverride
 	}
 	override = compactPromptOverride(override)
 	baseModel, baseEffort, baseAccess := s.resolveBasePromptConfig(inst, surface, threadID, cwd)

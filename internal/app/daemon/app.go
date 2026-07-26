@@ -142,6 +142,7 @@ type App struct {
 	feishuRuntime               feishuRuntimeState
 	daemonAsyncRuntime          daemonAsyncRuntimeState
 	cronRuntime                 cronRuntimeState
+	botCapabilitySettingsState  botCapabilitySettingsRuntimeState
 	claudeWorkspaceProfileState claudeWorkspaceProfileRuntimeState
 
 	adminAuth                  *adminauth.Manager
@@ -321,6 +322,7 @@ func (a *App) SetHeadlessRuntime(cfg HeadlessRuntimeConfig) {
 	a.cronRuntime.repoManager = cronrepo.NewManager(cfg.Paths.StateDir)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.configureBotCapabilitySettingsStateLocked(cfg.Paths.StateDir)
 	a.configureClaudeWorkspaceProfileStateLocked(cfg.Paths.StateDir)
 	a.configureSurfaceResumeStateLocked(cfg.Paths.StateDir)
 	if loaded, err := a.loadAdminConfig(); err == nil {
@@ -330,6 +332,7 @@ func (a *App) SetHeadlessRuntime(cfg HeadlessRuntimeConfig) {
 		log.Printf("load config catalogs failed during headless runtime setup: err=%v", err)
 	}
 	a.syncClaudeWorkspaceProfileStateLocked()
+	a.syncBotCapabilitySettingsStateLocked()
 	a.syncSurfaceResumeStateLocked(nil)
 }
 

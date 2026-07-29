@@ -29,6 +29,8 @@ type InboundEnv struct {
 	ParsePostInputs                  func(context.Context, string, string) ([]agentproto.Input, string, error)
 	BuildMergeForwardStructuredInput func(context.Context, *larkim.EventMessage) (string, []agentproto.Input, error)
 	RecordSurfaceMessage             func(messageID, surfaceSessionID string)
+	PrimaryGatewayForChat            func(chatID string) string
+	PrimaryGatewayPermissionAllowed  func(gatewayID string) bool
 	DownloadImage                    func(context.Context, string, string) (string, string, error)
 	DownloadFile                     func(context.Context, string, string, string) (string, error)
 	DeliverAsyncInboundFailure       func(context.Context, string, string, string, string, string)

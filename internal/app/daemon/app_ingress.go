@@ -261,6 +261,7 @@ func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.A
 		a.syncSurfaceResumeStateLocked(nil)
 		a.syncClaudeWorkspaceProfileStateLocked()
 		a.syncBotCapabilitySettingsStateLocked()
+		a.syncFeishuRoomPrimaryStateLocked()
 		a.syncWorkspaceSurfaceContextFilesLocked()
 		return nil
 	}
@@ -279,6 +280,7 @@ func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.A
 	a.syncSurfaceResumeStateLocked(clearTargets)
 	a.syncClaudeWorkspaceProfileStateLocked()
 	a.syncBotCapabilitySettingsStateLocked()
+	a.syncFeishuRoomPrimaryStateLocked()
 	a.syncWorkspaceSurfaceContextFilesLocked()
 	if action.Kind == control.ActionModeCommand {
 		after := a.service.SurfaceSnapshot(action.SurfaceSessionID)
@@ -534,6 +536,7 @@ func (a *App) onHello(ctx context.Context, hello agentproto.Hello) {
 		a.syncSurfaceResumeStateLocked(nil)
 		a.syncClaudeWorkspaceProfileStateLocked()
 		a.syncBotCapabilitySettingsStateLocked()
+		a.syncFeishuRoomPrimaryStateLocked()
 		a.syncWorkspaceSurfaceContextFilesLocked()
 	}
 	if inst.Source == "vscode" {

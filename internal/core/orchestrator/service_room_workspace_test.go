@@ -14,12 +14,17 @@ import (
 
 type fakeChatAdminAuthorizer struct {
 	allowed bool
+	reason  string
 	calls   []ChatAdminAuthorizationRequest
 }
 
 func (f *fakeChatAdminAuthorizer) AuthorizeChatAdmin(_ context.Context, req ChatAdminAuthorizationRequest) ChatAdminAuthorizationDecision {
 	f.calls = append(f.calls, req)
-	return ChatAdminAuthorizationDecision{Allowed: f.allowed, Reason: "test"}
+	reason := f.reason
+	if reason == "" {
+		reason = "test"
+	}
+	return ChatAdminAuthorizationDecision{Allowed: f.allowed, Reason: reason}
 }
 
 func TestRoomWorkspaceBindingRecordsFirstGroupWorkspaceAttach(t *testing.T) {

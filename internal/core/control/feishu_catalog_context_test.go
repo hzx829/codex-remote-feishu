@@ -26,4 +26,47 @@ func TestNormalizeCatalogContextDefaultsToCodexDetached(t *testing.T) {
 	if ctx.Capabilities.SessionCatalog || ctx.Capabilities.RequiresCWDForResume {
 		t.Fatalf("unexpected codex-only capabilities: %#v", ctx.Capabilities)
 	}
+	if ctx.SurfaceScopeKind != string(CatalogSurfaceScopeKindUser) {
+		t.Fatalf("SurfaceScopeKind = %q, want %q", ctx.SurfaceScopeKind, CatalogSurfaceScopeKindUser)
+	}
+	if ctx.PrimaryBotState != string(CatalogPrimaryBotStateUnknown) {
+		t.Fatalf("PrimaryBotState = %q, want %q", ctx.PrimaryBotState, CatalogPrimaryBotStateUnknown)
+	}
+	if ctx.PrimaryPermissionState != string(CatalogPrimaryPermissionStateUnknown) {
+		t.Fatalf("PrimaryPermissionState = %q, want %q", ctx.PrimaryPermissionState, CatalogPrimaryPermissionStateUnknown)
+	}
+}
+
+func TestNormalizeCatalogContextNormalizesPrimaryProjectionState(t *testing.T) {
+	ctx := NormalizeCatalogContext(CatalogContext{
+		SurfaceScopeKind:       " CHAT ",
+		PrimaryBotState:        " Current ",
+		PrimaryPermissionState: " Granted ",
+	})
+	if ctx.SurfaceScopeKind != string(CatalogSurfaceScopeKindChat) {
+		t.Fatalf("SurfaceScopeKind = %q, want %q", ctx.SurfaceScopeKind, CatalogSurfaceScopeKindChat)
+	}
+	if ctx.PrimaryBotState != string(CatalogPrimaryBotStateCurrent) {
+		t.Fatalf("PrimaryBotState = %q, want %q", ctx.PrimaryBotState, CatalogPrimaryBotStateCurrent)
+	}
+	if ctx.PrimaryPermissionState != string(CatalogPrimaryPermissionStateGranted) {
+		t.Fatalf("PrimaryPermissionState = %q, want %q", ctx.PrimaryPermissionState, CatalogPrimaryPermissionStateGranted)
+	}
+}
+
+func TestNormalizeCatalogContextRejectsUnknownPrimaryProjectionState(t *testing.T) {
+	ctx := NormalizeCatalogContext(CatalogContext{
+		SurfaceScopeKind:       "channel",
+		PrimaryBotState:        "self",
+		PrimaryPermissionState: "ok",
+	})
+	if ctx.SurfaceScopeKind != string(CatalogSurfaceScopeKindUser) {
+		t.Fatalf("SurfaceScopeKind = %q, want %q", ctx.SurfaceScopeKind, CatalogSurfaceScopeKindUser)
+	}
+	if ctx.PrimaryBotState != string(CatalogPrimaryBotStateUnknown) {
+		t.Fatalf("PrimaryBotState = %q, want %q", ctx.PrimaryBotState, CatalogPrimaryBotStateUnknown)
+	}
+	if ctx.PrimaryPermissionState != string(CatalogPrimaryPermissionStateUnknown) {
+		t.Fatalf("PrimaryPermissionState = %q, want %q", ctx.PrimaryPermissionState, CatalogPrimaryPermissionStateUnknown)
+	}
 }

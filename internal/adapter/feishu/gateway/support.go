@@ -120,7 +120,7 @@ func parseFeishuEventText(rawContent string, mentions []*larkim.MentionEvent) (d
 	return normalizeFeishuTextMentions(rawText, mentions), normalizeFeishuCommandCandidate(rawText, mentions), nil
 }
 
-func groupMessageMentionGateReason(env InboundEnv, message *larkim.EventMessage) string {
+func groupMessageMentionGateReason(env InboundEnv, message *larkim.EventMessage, senderType string) string {
 	if message == nil {
 		return ""
 	}
@@ -132,7 +132,7 @@ func groupMessageMentionGateReason(env InboundEnv, message *larkim.EventMessage)
 		return "bot_identity_unavailable"
 	}
 	if len(message.Mentions) == 0 {
-		return "ignored_no_mentions_in_group"
+		return unmentionedGroupMessageGateReason(env, message, senderType)
 	}
 	for _, mention := range message.Mentions {
 		if mention == nil || mention.Id == nil {
@@ -143,6 +143,39 @@ func groupMessageMentionGateReason(env InboundEnv, message *larkim.EventMessage)
 		}
 	}
 	return "ignored_not_mentioned_current_bot"
+}
+
+func unmentionedGroupMessageGateReason(env InboundEnv, message *larkim.EventMessage, senderType string) string {
+	if messageSenderIsBot(senderType) {
+		return "ignored_unmentioned_bot_sender"
+	}
+	if env.PrimaryGatewayForChat == nil {
+		return "ignored_no_primary_gateway_lookup"
+	}
+	chatID := strings.TrimSpace(stringPtr(message.ChatId))
+	primaryGatewayID := strings.TrimSpace(env.PrimaryGatewayForChat(chatID))
+	if primaryGatewayID == "" {
+		return "ignored_no_primary_gateway"
+	}
+	if primaryGatewayID != strings.TrimSpace(env.GatewayID) {
+		return "ignored_not_primary_gateway"
+	}
+	if env.PrimaryGatewayPermissionAllowed == nil {
+		return "ignored_primary_permission_unknown"
+	}
+	if !env.PrimaryGatewayPermissionAllowed(primaryGatewayID) {
+		return "ignored_primary_permission_missing"
+	}
+	return ""
+}
+
+func messageSenderIsBot(senderType string) bool {
+	switch strings.ToLower(strings.TrimSpace(senderType)) {
+	case "app", "bot":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeFeishuTextMentions(rawText string, mentions []*larkim.MentionEvent) string {

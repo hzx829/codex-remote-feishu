@@ -49,6 +49,7 @@ WebSetup 里的推荐菜单、`app-template.json` 里的菜单清单，以及飞
 - `/compact`
 - `/steerall`
 - `/sendfile`
+- `/primary`
 - `/mode`
 - `/autowhip`
 - `/model`
@@ -105,6 +106,13 @@ alias 仍兼容，但不建议继续当成新的主展示入口：
 
 - `bitable:app` 已开通，用于创建和访问当前 daemon 实例的专属多维表格
 
+如果你计划在群聊里使用 `/primary on` 设置“本群主机器人”，让它承接没有 `@` 任何人的普通群消息，再给这个机器人应用额外开通以下任一权限：
+
+- `im:message.group_msg`
+- `im:message.group_msg:readonly`
+
+这不是基础安装必选权限。没有开通时，机器人仍可处理单聊消息和群里明确 `@` 它的消息；只是 `/primary on` 会拒绝设置，未 `@` 群消息也不会被它承接。开通权限后，重新执行 `/primary on` 或 `/primary refresh` 即可刷新运行时缓存。
+
 ### 2. 事件订阅
 
 当前实现依赖这 5 个事件：
@@ -123,6 +131,8 @@ alias 仍兼容，但不建议继续当成新的主展示入口：
 - `im.message.reaction.deleted_v1` 负责在用户撤销 reaction 时同步撤销对应的反馈动作
 - `im.message.recalled_v1` 负责撤回尚未发送的排队输入，或取消 staged image
 - `application.bot.menu_v6` 负责静态 bot 菜单里的 `menu/stop/steerall/new/reasoning/model/access`
+
+群主机器人能力不需要新增事件类型，仍复用 `im.message.receive_v1`；区别只在于是否额外开通群普通消息读取权限。
 
 ### 3. 回调配置
 

@@ -14,12 +14,13 @@ import (
 )
 
 type Config struct {
-	TurnHandoffWait     time.Duration
-	HeadlessLaunchWait  time.Duration
-	LocalPauseMaxWait   time.Duration
-	DetachAbandonWait   time.Duration
-	GitAvailable        bool
-	ChatAdminAuthorizer ChatAdminAuthorizer
+	TurnHandoffWait             time.Duration
+	HeadlessLaunchWait          time.Duration
+	LocalPauseMaxWait           time.Duration
+	DetachAbandonWait           time.Duration
+	GitAvailable                bool
+	ChatAdminAuthorizer         ChatAdminAuthorizer
+	PrimaryBotPermissionChecker PrimaryBotPermissionChecker
 }
 
 type ChatAdminAuthorizer interface {
@@ -35,6 +36,24 @@ type ChatAdminAuthorizationRequest struct {
 type ChatAdminAuthorizationDecision struct {
 	Allowed bool
 	Reason  string
+}
+
+type PrimaryBotPermissionChecker interface {
+	CheckPrimaryBotPermission(context.Context, PrimaryBotPermissionRequest) PrimaryBotPermissionDecision
+}
+
+type PrimaryBotPermissionRequest struct {
+	GatewayID    string
+	ChatID       string
+	ActorOpenID  string
+	ForceRefresh bool
+}
+
+type PrimaryBotPermissionDecision struct {
+	Allowed bool
+	Scope   string
+	Reason  string
+	Err     error
 }
 
 type Service struct {
@@ -284,6 +303,13 @@ func (s *Service) SetPersistedThreadCatalog(catalog threadcatalogcontract.Persis
 	s.catalog.setPersistedThreadCatalog(catalog)
 }
 
+func (s *Service) SetPrimaryBotPermissionChecker(checker PrimaryBotPermissionChecker) {
+	if s == nil {
+		return
+	}
+	s.config.PrimaryBotPermissionChecker = checker
+}
+
 func (s *Service) ApplySurfaceAction(action control.Action) []eventcontract.Event {
 	surface := s.ensureSurface(action)
 	action = s.resolveCatalogActionFromSurfaceContext(surface, action)
@@ -381,6 +407,8 @@ func (s *Service) ApplySurfaceAction(action control.Action) []eventcontract.Even
 		events = []eventcontract.Event{s.helpTerminalPageEvent(surface)}
 	case control.ActionShowHistory:
 		events = s.openThreadHistory(surface, action.MessageID, action.IsCardAction())
+	case control.ActionPrimaryCommand:
+		events = s.handlePrimaryCommand(surface, action)
 	case control.ActionUpgradeOwnerFlow:
 		ownerFlow := action.OwnerFlow
 		if ownerFlow == nil {

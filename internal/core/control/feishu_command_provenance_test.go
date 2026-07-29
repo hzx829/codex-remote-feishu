@@ -134,3 +134,50 @@ func TestMatchesFeishuCommandCatalogContextRequiresExactCurrentContext(t *testin
 		t.Fatal("expected product mode mismatch to fail")
 	}
 }
+
+func TestPrimaryCommandVariantTracksSurfaceAndPrimaryState(t *testing.T) {
+	userVariant := FeishuCommandVariantIDForContext(FeishuCommandPrimary, CatalogContext{
+		SurfaceScopeKind:       string(CatalogSurfaceScopeKindUser),
+		PrimaryBotState:        string(CatalogPrimaryBotStateUnknown),
+		PrimaryPermissionState: string(CatalogPrimaryPermissionStateUnknown),
+	})
+	chatNoneVariant := FeishuCommandVariantIDForContext(FeishuCommandPrimary, CatalogContext{
+		SurfaceScopeKind:       string(CatalogSurfaceScopeKindChat),
+		PrimaryBotState:        string(CatalogPrimaryBotStateNone),
+		PrimaryPermissionState: string(CatalogPrimaryPermissionStateUnknown),
+	})
+	chatCurrentVariant := FeishuCommandVariantIDForContext(FeishuCommandPrimary, CatalogContext{
+		SurfaceScopeKind:       string(CatalogSurfaceScopeKindChat),
+		PrimaryBotState:        string(CatalogPrimaryBotStateCurrent),
+		PrimaryPermissionState: string(CatalogPrimaryPermissionStateUnknown),
+	})
+
+	if userVariant == chatNoneVariant || chatNoneVariant == chatCurrentVariant {
+		t.Fatalf("primary variants should distinguish scope/state: user=%q none=%q current=%q", userVariant, chatNoneVariant, chatCurrentVariant)
+	}
+	if want := "primary.codex.normal.chat.none.unknown"; chatNoneVariant != want {
+		t.Fatalf("chat none primary variant = %q, want %q", chatNoneVariant, want)
+	}
+}
+
+func TestMatchesFeishuCommandCatalogContextRejectsStalePrimaryState(t *testing.T) {
+	action := Action{
+		CatalogFamilyID:  FeishuCommandPrimary,
+		CatalogVariantID: "primary.codex.normal.chat.none.unknown",
+		CatalogBackend:   agentproto.BackendCodex,
+	}
+	if !MatchesFeishuCommandCatalogContext(action, CatalogContext{
+		SurfaceScopeKind:       string(CatalogSurfaceScopeKindChat),
+		PrimaryBotState:        string(CatalogPrimaryBotStateNone),
+		PrimaryPermissionState: string(CatalogPrimaryPermissionStateUnknown),
+	}) {
+		t.Fatal("expected matching primary menu state to pass")
+	}
+	if MatchesFeishuCommandCatalogContext(action, CatalogContext{
+		SurfaceScopeKind:       string(CatalogSurfaceScopeKindChat),
+		PrimaryBotState:        string(CatalogPrimaryBotStateCurrent),
+		PrimaryPermissionState: string(CatalogPrimaryPermissionStateUnknown),
+	}) {
+		t.Fatal("expected stale primary menu state to fail")
+	}
+}

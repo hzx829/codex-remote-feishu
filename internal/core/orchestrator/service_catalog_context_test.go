@@ -33,6 +33,23 @@ func TestBuildCatalogContextDefaultsToCodexDetached(t *testing.T) {
 	if !ctx.Capabilities.ThreadsRefresh || !ctx.Capabilities.TurnSteer || !ctx.Capabilities.VSCodeMode {
 		t.Fatalf("expected codex fallback capabilities, got %#v", ctx.Capabilities)
 	}
+	if ctx.SurfaceScopeKind != string(control.CatalogSurfaceScopeKindUser) {
+		t.Fatalf("SurfaceScopeKind = %q, want %q", ctx.SurfaceScopeKind, control.CatalogSurfaceScopeKindUser)
+	}
+}
+
+func TestBuildCatalogContextUsesChatSurfaceScope(t *testing.T) {
+	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	svc := newServiceForTest(&now)
+	svc.MaterializeSurface("feishu:app-1:chat:oc_room", "app-1", "oc_room", "user-1")
+
+	ctx := svc.buildCatalogContext(svc.root.Surfaces["feishu:app-1:chat:oc_room"])
+	if ctx.SurfaceScopeKind != string(control.CatalogSurfaceScopeKindChat) {
+		t.Fatalf("SurfaceScopeKind = %q, want %q", ctx.SurfaceScopeKind, control.CatalogSurfaceScopeKindChat)
+	}
+	if !ctx.BotCapabilitySettingsReadOnly {
+		t.Fatalf("expected group catalog to keep bot capability settings readonly, got %#v", ctx)
+	}
 }
 
 func TestBuildCatalogContextUsesDetachedSurfaceBackend(t *testing.T) {

@@ -9,9 +9,11 @@ import (
 
 	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
+	"github.com/kxn/codex-remote-feishu/internal/core/orchestrator"
 )
 
 const defaultFeishuPermissionRefreshEvery = 2 * time.Minute
+const feishuPrimaryPermissionCacheTTL = 2 * time.Minute
 
 var listFeishuAppScopes = feishu.ListAppScopes
 
@@ -240,4 +242,96 @@ func feishuScopeStatusGranted(status feishu.AppScopeStatus) bool {
 	// The upstream SDK exposes grant_status without an inline enum table.
 	// Keep the auto-clear condition intentionally narrow.
 	return status.GrantStatus == 1
+}
+
+func (a *App) CheckPrimaryBotPermission(ctx context.Context, req orchestrator.PrimaryBotPermissionRequest) orchestrator.PrimaryBotPermissionDecision {
+	gatewayID := canonicalGatewayID(req.GatewayID)
+	if gatewayID == "" {
+		return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "missing_gateway"}
+	}
+	now := time.Now().UTC()
+	if !req.ForceRefresh {
+		if cached, ok := a.cachedPrimaryBotPermission(gatewayID, now); ok {
+			return primaryPermissionDecisionFromCache(cached)
+		}
+	}
+	checkCtx := ctx
+	if checkCtx == nil {
+		checkCtx = context.Background()
+	}
+	checkCtx, cancel := context.WithTimeout(checkCtx, 20*time.Second)
+	defer cancel()
+	scopes, err := a.loadGrantedFeishuScopes(checkCtx, gatewayID)
+	decision := primaryPermissionDecisionFromScopes(scopes, err)
+	a.storePrimaryBotPermissionCache(gatewayID, decision, now, req.ForceRefresh)
+	return decision
+}
+
+func (a *App) cachedPrimaryBotPermission(gatewayID string, now time.Time) (feishuPrimaryPermissionCacheRecord, bool) {
+	a.feishuRuntime.permissionMu.RLock()
+	defer a.feishuRuntime.permissionMu.RUnlock()
+	cached, ok := a.feishuRuntime.primaryPermissionCache[gatewayID]
+	if !ok || cached.ExpiresAt.IsZero() || !now.Before(cached.ExpiresAt) {
+		return feishuPrimaryPermissionCacheRecord{}, false
+	}
+	return cached, true
+}
+
+func (a *App) primaryBotPermissionCachedAllowed(gatewayID string) bool {
+	gatewayID = canonicalGatewayID(gatewayID)
+	if gatewayID == "" {
+		return false
+	}
+	cached, ok := a.cachedPrimaryBotPermission(gatewayID, time.Now().UTC())
+	return ok && cached.Allowed
+}
+
+func (a *App) storePrimaryBotPermissionCache(gatewayID string, decision orchestrator.PrimaryBotPermissionDecision, now time.Time, forceRefreshed bool) {
+	a.feishuRuntime.permissionMu.Lock()
+	defer a.feishuRuntime.permissionMu.Unlock()
+	if a.feishuRuntime.primaryPermissionCache == nil {
+		a.feishuRuntime.primaryPermissionCache = map[string]feishuPrimaryPermissionCacheRecord{}
+	}
+	record := feishuPrimaryPermissionCacheRecord{
+		GatewayID:      gatewayID,
+		Allowed:        decision.Allowed,
+		Scope:          strings.TrimSpace(decision.Scope),
+		CheckedAt:      now,
+		ExpiresAt:      now.Add(feishuPrimaryPermissionCacheTTL),
+		LastReason:     strings.TrimSpace(decision.Reason),
+		ForceRefreshed: forceRefreshed,
+	}
+	if decision.Err != nil {
+		record.LastErr = decision.Err.Error()
+	}
+	a.feishuRuntime.primaryPermissionCache[gatewayID] = record
+}
+
+func primaryPermissionDecisionFromCache(record feishuPrimaryPermissionCacheRecord) orchestrator.PrimaryBotPermissionDecision {
+	decision := orchestrator.PrimaryBotPermissionDecision{
+		Allowed: record.Allowed,
+		Scope:   strings.TrimSpace(record.Scope),
+		Reason:  strings.TrimSpace(record.LastReason),
+	}
+	if decision.Reason == "" && !decision.Allowed {
+		decision.Reason = "cached_missing"
+	}
+	return decision
+}
+
+func primaryPermissionDecisionFromScopes(scopes []feishu.AppScopeStatus, err error) orchestrator.PrimaryBotPermissionDecision {
+	if err != nil {
+		return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "scope_list_failed", Err: err}
+	}
+	for _, item := range scopes {
+		if !feishuScopeStatusGranted(item) {
+			continue
+		}
+		scope := strings.TrimSpace(item.ScopeName)
+		switch scope {
+		case "im:message.group_msg", "im:message.group_msg:readonly":
+			return orchestrator.PrimaryBotPermissionDecision{Allowed: true, Scope: scope}
+		}
+	}
+	return orchestrator.PrimaryBotPermissionDecision{Allowed: false, Reason: "missing_group_message_scope"}
 }

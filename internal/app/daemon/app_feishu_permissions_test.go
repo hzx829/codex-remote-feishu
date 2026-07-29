@@ -1,12 +1,14 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
+	"github.com/kxn/codex-remote-feishu/internal/core/orchestrator"
 )
 
 func TestApplyFeishuPermissionVerificationResultClearsGrantedGap(t *testing.T) {
@@ -79,6 +81,44 @@ func TestApplyFeishuPermissionVerificationResultClearsBrokerPermissionBlocks(t *
 	}
 	if len(gateway.clearCalls[0].scopes) != 1 || gateway.clearCalls[0].scopes[0].ScopeName != "im:message" {
 		t.Fatalf("unexpected forwarded scopes: %#v", gateway.clearCalls[0].scopes)
+	}
+}
+
+func TestPrimaryPermissionDecisionAcceptsGroupMessageScopes(t *testing.T) {
+	for _, scope := range []string{"im:message.group_msg", "im:message.group_msg:readonly"} {
+		decision := primaryPermissionDecisionFromScopes([]feishu.AppScopeStatus{
+			{ScopeName: scope, ScopeType: "tenant", GrantStatus: 1},
+		}, nil)
+		if !decision.Allowed || decision.Scope != scope {
+			t.Fatalf("scope %s decision = %#v, want allowed", scope, decision)
+		}
+	}
+}
+
+func TestPrimaryPermissionDecisionRejectsMissingScopeAndErrors(t *testing.T) {
+	if decision := primaryPermissionDecisionFromScopes([]feishu.AppScopeStatus{
+		{ScopeName: "im:message", ScopeType: "tenant", GrantStatus: 1},
+	}, nil); decision.Allowed || decision.Reason != "missing_group_message_scope" {
+		t.Fatalf("missing scope decision = %#v, want missing", decision)
+	}
+	if decision := primaryPermissionDecisionFromScopes(nil, errors.New("boom")); decision.Allowed || decision.Reason != "scope_list_failed" || decision.Err == nil {
+		t.Fatalf("error decision = %#v, want failed with err", decision)
+	}
+}
+
+func TestPrimaryPermissionCheckerUsesFreshCacheWhenNotForced(t *testing.T) {
+	app := New(":0", ":0", &recordingGateway{}, serverIdentityForTest())
+	now := time.Now().UTC()
+	app.storePrimaryBotPermissionCache("app-1", orchestrator.PrimaryBotPermissionDecision{
+		Allowed: true,
+		Scope:   "im:message.group_msg",
+	}, now, true)
+
+	decision := app.CheckPrimaryBotPermission(context.Background(), orchestrator.PrimaryBotPermissionRequest{
+		GatewayID: "app-1",
+	})
+	if !decision.Allowed || decision.Scope != "im:message.group_msg" {
+		t.Fatalf("cached decision = %#v, want allowed group_msg", decision)
 	}
 }
 

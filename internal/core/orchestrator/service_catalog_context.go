@@ -47,6 +47,12 @@ func (s *Service) buildCatalogContextWithInstance(surface *state.SurfaceConsoleR
 			attachedKind = string(control.CatalogAttachedKindWorkspace)
 		}
 	}
+	surfaceScopeKind := string(control.CatalogSurfaceScopeKindUser)
+	primaryBotState := string(control.CatalogPrimaryBotStateUnknown)
+	if surfaceFeishuRoomID(surface) != "" {
+		surfaceScopeKind = string(control.CatalogSurfaceScopeKindChat)
+		primaryBotState = string(primaryBotStateForSurface(surface, s.ensureFeishuRoomContextForSurface(surface)))
+	}
 	return control.NormalizeCatalogContext(control.CatalogContext{
 		Backend:                       backend,
 		ProductMode:                   string(productMode),
@@ -54,6 +60,8 @@ func (s *Service) buildCatalogContextWithInstance(surface *state.SurfaceConsoleR
 		AttachedKind:                  attachedKind,
 		WorkspaceKey:                  workspaceKey,
 		InstanceID:                    instanceID,
+		SurfaceScopeKind:              surfaceScopeKind,
+		PrimaryBotState:               primaryBotState,
 		Capabilities:                  capabilities,
 		CapabilitiesDeclared:          inst != nil && inst.CapabilitiesDeclared,
 		BotCapabilitySettingsReadOnly: surfaceFeishuRoomID(surface) != "",

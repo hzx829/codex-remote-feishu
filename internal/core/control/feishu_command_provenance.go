@@ -47,13 +47,16 @@ func ResolveFeishuActionCatalog(ctx CatalogContext, action Action) (ResolvedComm
 		if familyID := strings.TrimSpace(action.CatalogFamilyID); familyID != "" &&
 			(variantID == "" || variantID == defaultFeishuCommandDisplayVariantID(familyID)) {
 			variantID = feishuCommandVariantIDForContext(action.CatalogFamilyID, CatalogContext{
-				Backend:      backend,
-				ProductMode:  ctx.ProductMode,
-				MenuStage:    ctx.MenuStage,
-				AttachedKind: ctx.AttachedKind,
-				WorkspaceKey: ctx.WorkspaceKey,
-				InstanceID:   ctx.InstanceID,
-				Capabilities: ctx.Capabilities,
+				Backend:                backend,
+				ProductMode:            ctx.ProductMode,
+				MenuStage:              ctx.MenuStage,
+				AttachedKind:           ctx.AttachedKind,
+				WorkspaceKey:           ctx.WorkspaceKey,
+				InstanceID:             ctx.InstanceID,
+				SurfaceScopeKind:       ctx.SurfaceScopeKind,
+				PrimaryBotState:        ctx.PrimaryBotState,
+				PrimaryPermissionState: ctx.PrimaryPermissionState,
+				Capabilities:           ctx.Capabilities,
 			})
 		}
 		return NormalizeResolvedCommand(ResolvedCommand{

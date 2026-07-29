@@ -15,6 +15,32 @@ const (
 	CatalogAttachedKindInstance  CatalogAttachedKind = "instance"
 )
 
+type CatalogSurfaceScopeKind string
+
+const (
+	CatalogSurfaceScopeKindUser CatalogSurfaceScopeKind = "user"
+	CatalogSurfaceScopeKindChat CatalogSurfaceScopeKind = "chat"
+)
+
+type CatalogPrimaryBotState string
+
+const (
+	CatalogPrimaryBotStateUnknown CatalogPrimaryBotState = "unknown"
+	CatalogPrimaryBotStateNone    CatalogPrimaryBotState = "none"
+	CatalogPrimaryBotStateCurrent CatalogPrimaryBotState = "current"
+	CatalogPrimaryBotStateOther   CatalogPrimaryBotState = "other"
+)
+
+type CatalogPrimaryPermissionState string
+
+const (
+	CatalogPrimaryPermissionStateUnknown CatalogPrimaryPermissionState = "unknown"
+	CatalogPrimaryPermissionStateGranted CatalogPrimaryPermissionState = "granted"
+	CatalogPrimaryPermissionStateMissing CatalogPrimaryPermissionState = "missing"
+	CatalogPrimaryPermissionStateError   CatalogPrimaryPermissionState = "error"
+	CatalogPrimaryPermissionStateStale   CatalogPrimaryPermissionState = "stale"
+)
+
 type CatalogContext struct {
 	Backend                       agentproto.Backend
 	ProductMode                   string
@@ -22,6 +48,9 @@ type CatalogContext struct {
 	AttachedKind                  string
 	WorkspaceKey                  string
 	InstanceID                    string
+	SurfaceScopeKind              string
+	PrimaryBotState               string
+	PrimaryPermissionState        string
 	Capabilities                  agentproto.Capabilities
 	CapabilitiesDeclared          bool
 	BotCapabilitySettingsReadOnly bool
@@ -35,6 +64,43 @@ func NormalizeCatalogAttachedKind(value string) CatalogAttachedKind {
 		return CatalogAttachedKindInstance
 	default:
 		return CatalogAttachedKindDetached
+	}
+}
+
+func NormalizeCatalogSurfaceScopeKind(value string) CatalogSurfaceScopeKind {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(CatalogSurfaceScopeKindChat):
+		return CatalogSurfaceScopeKindChat
+	default:
+		return CatalogSurfaceScopeKindUser
+	}
+}
+
+func NormalizeCatalogPrimaryBotState(value string) CatalogPrimaryBotState {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(CatalogPrimaryBotStateNone):
+		return CatalogPrimaryBotStateNone
+	case string(CatalogPrimaryBotStateCurrent):
+		return CatalogPrimaryBotStateCurrent
+	case string(CatalogPrimaryBotStateOther):
+		return CatalogPrimaryBotStateOther
+	default:
+		return CatalogPrimaryBotStateUnknown
+	}
+}
+
+func NormalizeCatalogPrimaryPermissionState(value string) CatalogPrimaryPermissionState {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(CatalogPrimaryPermissionStateGranted):
+		return CatalogPrimaryPermissionStateGranted
+	case string(CatalogPrimaryPermissionStateMissing):
+		return CatalogPrimaryPermissionStateMissing
+	case string(CatalogPrimaryPermissionStateError):
+		return CatalogPrimaryPermissionStateError
+	case string(CatalogPrimaryPermissionStateStale):
+		return CatalogPrimaryPermissionStateStale
+	default:
+		return CatalogPrimaryPermissionStateUnknown
 	}
 }
 
@@ -78,6 +144,9 @@ func NormalizeCatalogContext(ctx CatalogContext) CatalogContext {
 		AttachedKind:                  string(attachedKind),
 		WorkspaceKey:                  workspaceKey,
 		InstanceID:                    instanceID,
+		SurfaceScopeKind:              string(NormalizeCatalogSurfaceScopeKind(ctx.SurfaceScopeKind)),
+		PrimaryBotState:               string(NormalizeCatalogPrimaryBotState(ctx.PrimaryBotState)),
+		PrimaryPermissionState:        string(NormalizeCatalogPrimaryPermissionState(ctx.PrimaryPermissionState)),
 		Capabilities:                  caps,
 		CapabilitiesDeclared:          ctx.CapabilitiesDeclared,
 		BotCapabilitySettingsReadOnly: ctx.BotCapabilitySettingsReadOnly,

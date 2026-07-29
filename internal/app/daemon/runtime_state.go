@@ -9,6 +9,7 @@ import (
 	cronrt "github.com/kxn/codex-remote-feishu/internal/app/cronruntime"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/botcapabilitysettings"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/claudeworkspaceprofile"
+	"github.com/kxn/codex-remote-feishu/internal/app/daemon/feishuroomprimary"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/surfaceresume"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
 )
@@ -62,6 +63,10 @@ type botCapabilitySettingsRuntimeState struct {
 	store *botcapabilitysettings.Store
 }
 
+type feishuRoomPrimaryRuntimeState struct {
+	store *feishuroomprimary.Store
+}
+
 type daemonAsyncRuntimeState struct {
 	pending     []daemonAsyncResult
 	drainQueued bool
@@ -88,11 +93,23 @@ type feishuRuntimeState struct {
 	timeSensitive             map[string]feishuTimeSensitiveState
 	attentionRequests         map[string]time.Time
 	permissionGaps            map[string]map[string]*feishuPermissionGapRecord
+	primaryPermissionCache    map[string]feishuPrimaryPermissionCacheRecord
 	permissionRefreshEvery    time.Duration
 	permissionNextRefresh     time.Time
 	permissionRefreshInFlight bool
 	onboarding                map[string]*feishuOnboardingSession
 	registration              feishuRegistrationRunner
+}
+
+type feishuPrimaryPermissionCacheRecord struct {
+	GatewayID      string
+	Allowed        bool
+	Scope          string
+	CheckedAt      time.Time
+	ExpiresAt      time.Time
+	LastErr        string
+	LastReason     string
+	ForceRefreshed bool
 }
 
 func newSurfaceResumeRuntimeState() surfaceResumeRuntimeState {
@@ -121,6 +138,7 @@ func newFeishuRuntimeState() feishuRuntimeState {
 		timeSensitive:          map[string]feishuTimeSensitiveState{},
 		attentionRequests:      map[string]time.Time{},
 		permissionGaps:         map[string]map[string]*feishuPermissionGapRecord{},
+		primaryPermissionCache: map[string]feishuPrimaryPermissionCacheRecord{},
 		permissionRefreshEvery: defaultFeishuPermissionRefreshEvery,
 		onboarding:             map[string]*feishuOnboardingSession{},
 	}

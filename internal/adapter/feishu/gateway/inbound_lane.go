@@ -454,7 +454,7 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 	gatewayID := strings.TrimSpace(env.GatewayID)
 	surfaceSessionID := SurfaceIDForInbound(gatewayID, chatID, chatType, senderUserID)
 	inbound := InboundMetaFromMessageEvent(event)
-	if reason := groupMessageMentionGateReason(env, message); reason != "" {
+	if reason := groupMessageMentionGateReason(env, message, senderTypeFromMessageSender(event.Event.Sender)); reason != "" {
 		logInboundMessageIgnored(gatewayID, surfaceSessionID, inbound, message, reason)
 		return PlannedInboundMessage{}, false, nil
 	}

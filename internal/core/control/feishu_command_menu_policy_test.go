@@ -37,7 +37,7 @@ func TestFeishuMenuGroupClassificationMatchesTaskModel(t *testing.T) {
 		},
 		{
 			groupID: FeishuCommandGroupCommonTools,
-			want:    []string{FeishuCommandReview, FeishuCommandPatch, FeishuCommandAutoWhip, FeishuCommandHistory, FeishuCommandCron, FeishuCommandSendFile},
+			want:    []string{FeishuCommandReview, FeishuCommandPatch, FeishuCommandAutoWhip, FeishuCommandPrimary, FeishuCommandHistory, FeishuCommandCron, FeishuCommandSendFile},
 		},
 		{
 			groupID: FeishuCommandGroupMaintenance,
@@ -59,7 +59,7 @@ func TestFeishuMenuGroupClassificationMatchesTaskModel(t *testing.T) {
 			t.Fatalf("group %q visible command ids mismatch:\n got: %#v\nwant: %#v", tc.groupID, visible, tc.want)
 		}
 	}
-	if totalVisible != 36 {
-		t.Fatalf("unexpected total visible command count: got %d, want 36", totalVisible)
+	if totalVisible != 37 {
+		t.Fatalf("unexpected total visible command count: got %d, want 37", totalVisible)
 	}
 }

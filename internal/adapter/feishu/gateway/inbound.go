@@ -34,7 +34,7 @@ func ParseMessageEvent(ctx context.Context, env InboundEnv, event *larkim.P2Mess
 	chatType := stringPtr(message.ChatType)
 	senderUserID := userIDFromMessage(event.Event.Sender)
 	surfaceSessionID := SurfaceIDForInbound(gatewayID, chatID, chatType, senderUserID)
-	if reason := groupMessageMentionGateReason(env, message); reason != "" {
+	if reason := groupMessageMentionGateReason(env, message, senderTypeFromMessageSender(event.Event.Sender)); reason != "" {
 		logInboundMessageIgnored(gatewayID, surfaceSessionID, InboundMetaFromMessageEvent(event), message, reason)
 		return control.Action{}, false, nil
 	}

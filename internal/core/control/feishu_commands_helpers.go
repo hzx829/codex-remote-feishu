@@ -31,3 +31,13 @@ func normalizePlanMenuArgument(suffix string) (string, bool) {
 		return "", false
 	}
 }
+
+func normalizePrimaryMenuArgument(suffix string) (string, bool) {
+	value := strings.ToLower(strings.TrimSpace(suffix))
+	switch value {
+	case "on", "off", "status", "refresh":
+		return value, true
+	default:
+		return "", false
+	}
+}

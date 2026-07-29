@@ -143,6 +143,7 @@ type App struct {
 	daemonAsyncRuntime          daemonAsyncRuntimeState
 	cronRuntime                 cronRuntimeState
 	botCapabilitySettingsState  botCapabilitySettingsRuntimeState
+	feishuRoomPrimaryState      feishuRoomPrimaryRuntimeState
 	claudeWorkspaceProfileState claudeWorkspaceProfileRuntimeState
 
 	adminAuth                  *adminauth.Manager
@@ -230,6 +231,7 @@ func New(relayAddr, apiAddr string, gateway feishu.Gateway, serverIdentity agent
 		commandAnchorRecallDelay:    8 * time.Second,
 	}
 	chatAdminAuthorizer.app = app
+	app.service.SetPrimaryBotPermissionChecker(app)
 	app.codexUpgradeRuntime.Inspect = func(ctx context.Context, opts codexupgrade.InspectOptions) (codexupgrade.Installation, error) {
 		return codexupgrade.Inspect(ctx, opts), nil
 	}
@@ -323,6 +325,7 @@ func (a *App) SetHeadlessRuntime(cfg HeadlessRuntimeConfig) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.configureBotCapabilitySettingsStateLocked(cfg.Paths.StateDir)
+	a.configureFeishuRoomPrimaryStateLocked(cfg.Paths.StateDir)
 	a.configureClaudeWorkspaceProfileStateLocked(cfg.Paths.StateDir)
 	a.configureSurfaceResumeStateLocked(cfg.Paths.StateDir)
 	if loaded, err := a.loadAdminConfig(); err == nil {
@@ -333,6 +336,7 @@ func (a *App) SetHeadlessRuntime(cfg HeadlessRuntimeConfig) {
 	}
 	a.syncClaudeWorkspaceProfileStateLocked()
 	a.syncBotCapabilitySettingsStateLocked()
+	a.syncFeishuRoomPrimaryStateLocked()
 	a.syncSurfaceResumeStateLocked(nil)
 }
 

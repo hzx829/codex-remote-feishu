@@ -8,6 +8,10 @@ func FeishuCommandVariantIDForContext(commandID string, ctx CatalogContext) stri
 		return ""
 	}
 	normalized := NormalizeCatalogContext(ctx)
+	if commandID == FeishuCommandPrimary {
+		return commandID + "." + string(normalized.Backend) + "." + normalized.ProductMode + "." +
+			normalized.SurfaceScopeKind + "." + normalized.PrimaryBotState + "." + normalized.PrimaryPermissionState
+	}
 	return commandID + "." + string(normalized.Backend) + "." + normalized.ProductMode
 }
 

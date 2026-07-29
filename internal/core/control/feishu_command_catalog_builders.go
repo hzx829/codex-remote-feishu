@@ -48,7 +48,7 @@ func BuildFeishuCommandMenuGroupPageViewForContext(groupID string, ctx CatalogCo
 	}
 	entries := make([]CommandCatalogEntry, 0, 6)
 	for _, current := range ResolveFeishuCommandDisplayGroup(groupID, true, ctx) {
-		entries = append(entries, buildFeishuCommandMenuEntryFromResolution(current, ctx.Backend))
+		entries = append(entries, buildFeishuCommandMenuEntryFromResolution(current, ctx))
 	}
 	return FeishuPageView{
 		CommandID:      FeishuCommandMenu,
@@ -200,14 +200,80 @@ func buildFeishuCommandMenuEntry(def FeishuCommandDefinition) CommandCatalogEntr
 	return buildFeishuCommandCatalogEntryWithCatalog(def, def.ID, defaultFeishuCommandDisplayVariantID(def.ID), agentproto.BackendCodex, feishuCommandMenuButtonLabel(def))
 }
 
-func buildFeishuCommandMenuEntryFromResolution(resolution FeishuCommandDisplayResolution, backend agentproto.Backend) CommandCatalogEntry {
+func buildFeishuCommandMenuEntryFromResolution(resolution FeishuCommandDisplayResolution, ctx CatalogContext) CommandCatalogEntry {
+	ctx = NormalizeCatalogContext(ctx)
+	if resolution.FamilyID == FeishuCommandPrimary {
+		return buildFeishuPrimaryCommandMenuEntry(resolution, ctx)
+	}
 	return buildFeishuCommandCatalogEntryWithCatalog(
 		resolution.Definition,
 		resolution.FamilyID,
 		resolution.VariantID,
-		backend,
+		ctx.Backend,
 		feishuCommandMenuButtonLabel(resolution.Definition),
 	)
+}
+
+func buildFeishuPrimaryCommandMenuEntry(resolution FeishuCommandDisplayResolution, ctx CatalogContext) CommandCatalogEntry {
+	def := resolution.Definition
+	entry := CommandCatalogEntry{
+		Title:       strings.TrimSpace(def.Title),
+		Description: primaryCommandMenuDescription(ctx),
+		Examples:    append([]string(nil), def.Examples...),
+		Commands:    []string{strings.TrimSpace(def.CanonicalSlash)},
+	}
+	for _, button := range primaryCommandMenuButtons(ctx) {
+		button.CommandID = strings.TrimSpace(def.ID)
+		button.CatalogFamilyID = strings.TrimSpace(resolution.FamilyID)
+		button.CatalogVariantID = strings.TrimSpace(resolution.VariantID)
+		button.CatalogBackend = ctx.Backend
+		entry.Buttons = append(entry.Buttons, button)
+	}
+	return entry
+}
+
+func primaryCommandMenuDescription(ctx CatalogContext) string {
+	switch CatalogPrimaryBotState(ctx.PrimaryBotState) {
+	case CatalogPrimaryBotStateCurrent:
+		return "当前机器人已是本群主机器人，可取消或刷新权限状态。"
+	case CatalogPrimaryBotStateOther:
+		return "本群已有其他主机器人；切换会替换当前承接者。"
+	case CatalogPrimaryBotStateNone:
+		return "本群还没有主机器人，可将当前机器人设为默认承接者。"
+	default:
+		return "查看或设置本群承接未 @ 普通消息的主机器人。"
+	}
+}
+
+func primaryCommandMenuButtons(ctx CatalogContext) []CommandCatalogButton {
+	state := CatalogPrimaryBotState(ctx.PrimaryBotState)
+	switch state {
+	case CatalogPrimaryBotStateCurrent:
+		return []CommandCatalogButton{
+			primaryCommandButton("取消主机器人", "/primary off"),
+			primaryCommandButton("查看状态", "/primary status"),
+			primaryCommandButton("刷新权限", "/primary refresh"),
+		}
+	case CatalogPrimaryBotStateOther:
+		return []CommandCatalogButton{
+			primaryCommandButton("切换为当前机器人", "/primary on"),
+			primaryCommandButton("查看状态", "/primary status"),
+			primaryCommandButton("刷新权限", "/primary refresh"),
+		}
+	default:
+		return []CommandCatalogButton{
+			primaryCommandButton("设为本群主机器人", "/primary on"),
+			primaryCommandButton("查看状态", "/primary status"),
+		}
+	}
+}
+
+func primaryCommandButton(label, commandText string) CommandCatalogButton {
+	return CommandCatalogButton{
+		Label:       strings.TrimSpace(label),
+		Kind:        CommandCatalogButtonAction,
+		CommandText: strings.TrimSpace(commandText),
+	}
 }
 
 func buildFeishuCommandCatalogEntry(def FeishuCommandDefinition, buttonLabel string) CommandCatalogEntry {

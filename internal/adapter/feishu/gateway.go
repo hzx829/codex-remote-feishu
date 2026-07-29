@@ -29,13 +29,15 @@ func (NopGateway) Start(context.Context, ActionHandler) error { return nil }
 func (NopGateway) Apply(context.Context, []Operation) error   { return nil }
 
 type LiveGatewayConfig struct {
-	GatewayID      string
-	AppID          string
-	AppSecret      string
-	BotOpenID      string
-	Domain         string
-	TempDir        string
-	UseSystemProxy bool
+	GatewayID                       string
+	AppID                           string
+	AppSecret                       string
+	BotOpenID                       string
+	Domain                          string
+	TempDir                         string
+	UseSystemProxy                  bool
+	PrimaryGatewayForChat           func(chatID string) string
+	PrimaryGatewayPermissionAllowed func(gatewayID string) bool
 }
 
 type LiveGateway struct {

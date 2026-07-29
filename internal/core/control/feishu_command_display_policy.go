@@ -29,6 +29,9 @@ func projectFeishuCommandDefinitionForDisplay(def FeishuCommandDefinition, inter
 	if !profile.IncludesFamily(def.ID) {
 		return FeishuCommandDefinition{}, false
 	}
+	if def.ID == FeishuCommandPrimary && ctx.SurfaceScopeKind != string(CatalogSurfaceScopeKindChat) {
+		return FeishuCommandDefinition{}, false
+	}
 	support, ok := ResolveFeishuCommandSupport(ctx, def.ID)
 	if !ok || !support.Visible {
 		return FeishuCommandDefinition{}, false

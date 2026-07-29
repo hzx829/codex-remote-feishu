@@ -683,6 +683,13 @@ func userIDFromMessage(sender *larkim.EventSender) string {
 	return userIDFromLarkUserID(sender.SenderId)
 }
 
+func senderTypeFromMessageSender(sender *larkim.EventSender) string {
+	if sender == nil {
+		return ""
+	}
+	return strings.TrimSpace(stringPtr(sender.SenderType))
+}
+
 func userIDFromLarkUserID(userID *larkim.UserId) string {
 	if userID == nil {
 		return ""

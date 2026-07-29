@@ -159,6 +159,7 @@ func TestResolveFeishuCommandDisplayProfileTracksModeSpecificFamilies(t *testing
 		FeishuCommandReview,
 		FeishuCommandPatch,
 		FeishuCommandAutoWhip,
+		FeishuCommandPrimary,
 		FeishuCommandHistory,
 		FeishuCommandCron,
 		FeishuCommandSendFile,
@@ -226,6 +227,67 @@ func TestGroupCatalogContextHidesBotCapabilitySettings(t *testing.T) {
 		if !catalogContainsCommand(page, command) {
 			t.Fatalf("group send settings menu should keep %q: %#v", command, page.Sections)
 		}
+	}
+}
+
+func TestPrimaryCommandHiddenFromSingleChatMenu(t *testing.T) {
+	page := BuildFeishuCommandMenuGroupPageViewForContext(FeishuCommandGroupCommonTools, CatalogContext{
+		ProductMode:      "normal",
+		SurfaceScopeKind: string(CatalogSurfaceScopeKindUser),
+	})
+	if catalogContainsCommand(page, "/primary") {
+		t.Fatalf("single-chat tools menu should hide /primary: %#v", page.Sections)
+	}
+}
+
+func TestPrimaryCommandProjectsGroupMenuForNoPrimaryBot(t *testing.T) {
+	page := BuildFeishuCommandMenuGroupPageViewForContext(FeishuCommandGroupCommonTools, CatalogContext{
+		ProductMode:      "normal",
+		SurfaceScopeKind: string(CatalogSurfaceScopeKindChat),
+		PrimaryBotState:  string(CatalogPrimaryBotStateNone),
+	})
+	entry := commandEntryForCommand(t, page, "/primary")
+	if got, want := entry.Title, "群主机器人"; got != want {
+		t.Fatalf("primary entry title = %q, want %q", got, want)
+	}
+	if got, want := buttonCommandTexts(entry), []string{"/primary on", "/primary status"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("no-primary buttons = %#v, want %#v; entry=%#v", got, want, entry)
+	}
+	if got, want := buttonLabels(entry), []string{"设为本群主机器人", "查看状态"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("no-primary button labels = %#v, want %#v; entry=%#v", got, want, entry)
+	}
+}
+
+func TestPrimaryCommandProjectsGroupMenuForCurrentPrimaryBot(t *testing.T) {
+	page := BuildFeishuCommandMenuGroupPageViewForContext(FeishuCommandGroupCommonTools, CatalogContext{
+		ProductMode:      "normal",
+		SurfaceScopeKind: string(CatalogSurfaceScopeKindChat),
+		PrimaryBotState:  string(CatalogPrimaryBotStateCurrent),
+	})
+	entry := commandEntryForCommand(t, page, "/primary")
+	if got, want := buttonCommandTexts(entry), []string{"/primary off", "/primary status", "/primary refresh"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("current-primary buttons = %#v, want %#v; entry=%#v", got, want, entry)
+	}
+	if got, want := buttonLabels(entry), []string{"取消主机器人", "查看状态", "刷新权限"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("current-primary button labels = %#v, want %#v; entry=%#v", got, want, entry)
+	}
+}
+
+func TestPrimaryCommandProjectsGroupMenuForOtherPrimaryBot(t *testing.T) {
+	page := BuildFeishuCommandMenuGroupPageViewForContext(FeishuCommandGroupCommonTools, CatalogContext{
+		ProductMode:      "normal",
+		SurfaceScopeKind: string(CatalogSurfaceScopeKindChat),
+		PrimaryBotState:  string(CatalogPrimaryBotStateOther),
+	})
+	entry := commandEntryForCommand(t, page, "/primary")
+	if got, want := buttonCommandTexts(entry), []string{"/primary on", "/primary status", "/primary refresh"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("other-primary buttons = %#v, want %#v; entry=%#v", got, want, entry)
+	}
+	if got, want := buttonLabels(entry), []string{"切换为当前机器人", "查看状态", "刷新权限"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("other-primary button labels = %#v, want %#v; entry=%#v", got, want, entry)
+	}
+	if !strings.Contains(entry.Description, "替换") {
+		t.Fatalf("other-primary description should warn replacement, got %q", entry.Description)
 	}
 }
 
@@ -305,4 +367,35 @@ func commandTextForMenuHomeEntry(page FeishuPageView, title string) string {
 		}
 	}
 	return ""
+}
+
+func commandEntryForCommand(t *testing.T, page FeishuPageView, command string) CommandCatalogEntry {
+	t.Helper()
+	for _, section := range page.Sections {
+		for _, entry := range section.Entries {
+			for _, current := range entry.Commands {
+				if strings.TrimSpace(current) == command {
+					return entry
+				}
+			}
+		}
+	}
+	t.Fatalf("command %q not found in page: %#v", command, page.Sections)
+	return CommandCatalogEntry{}
+}
+
+func buttonCommandTexts(entry CommandCatalogEntry) []string {
+	out := make([]string, 0, len(entry.Buttons))
+	for _, button := range entry.Buttons {
+		out = append(out, strings.TrimSpace(button.CommandText))
+	}
+	return out
+}
+
+func buttonLabels(entry CommandCatalogEntry) []string {
+	out := make([]string, 0, len(entry.Buttons))
+	for _, button := range entry.Buttons {
+		out = append(out, strings.TrimSpace(button.Label))
+	}
+	return out
 }

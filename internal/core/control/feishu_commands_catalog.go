@@ -66,7 +66,7 @@ func BuildFeishuCommandStaticPageViewForContext(title, summary string, interacti
 		for _, current := range resolved {
 			def := current.Definition
 			if interactive {
-				entries = append(entries, buildFeishuCommandMenuEntryFromResolution(current, ctx.Backend))
+				entries = append(entries, buildFeishuCommandMenuEntryFromResolution(current, ctx))
 				continue
 			}
 			entries = append(entries, buildFeishuCommandCatalogEntry(def, ""))
@@ -167,7 +167,7 @@ func feishuCommandDisplayRank(groupID, commandID string) int {
 			FeishuCommandFollow,
 		)
 	case FeishuCommandGroupCommonTools:
-		return commandRank(commandID, FeishuCommandReview, FeishuCommandPatch, FeishuCommandAutoWhip, FeishuCommandHistory, FeishuCommandCron, FeishuCommandSendFile)
+		return commandRank(commandID, FeishuCommandReview, FeishuCommandPatch, FeishuCommandAutoWhip, FeishuCommandPrimary, FeishuCommandHistory, FeishuCommandCron, FeishuCommandSendFile)
 	case FeishuCommandGroupMaintenance:
 		return commandRank(commandID, FeishuCommandAdmin, FeishuCommandUpgrade, FeishuCommandDebug, FeishuCommandHelp, FeishuCommandVSCodeMigrate)
 	default:

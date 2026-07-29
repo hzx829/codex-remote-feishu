@@ -97,6 +97,166 @@ func TestPlanInboundMessageEventIgnoresGroupTextWhenNotMentionedCurrentBot(t *te
 	}
 }
 
+func TestPlanInboundMessageEventQueuesUnmentionedGroupTextForPrimaryGateway(t *testing.T) {
+	recorded := false
+	env := InboundEnv{
+		GatewayID:                     "app-1",
+		BotOpenID:                     "ou_bot",
+		ParseTextActionWithoutCatalog: parseTextAction,
+		PrimaryGatewayForChat: func(chatID string) string {
+			if chatID != "oc_chat" {
+				t.Fatalf("primary lookup chat = %q, want oc_chat", chatID)
+			}
+			return "app-1"
+		},
+		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
+			if gatewayID != "app-1" {
+				t.Fatalf("permission lookup gateway = %q, want app-1", gatewayID)
+			}
+			return true
+		},
+		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
+			recorded = true
+			if messageID != "om-msg-primary" || surfaceSessionID != "feishu:app-1:chat:oc_chat" {
+				t.Fatalf("record = %s/%s, want om-msg-primary/feishu:app-1:chat:oc_chat", messageID, surfaceSessionID)
+			}
+		},
+	}
+	event := groupTextEventWithoutMention("om-msg-primary", "oc_chat", "请接一下")
+
+	planned, ok, err := PlanInboundMessageEvent(env, event)
+	if err != nil {
+		t.Fatalf("PlanInboundMessageEvent returned error: %v", err)
+	}
+	if !ok || planned.Queue == nil || planned.Queue.text != "请接一下" || !recorded {
+		t.Fatalf("expected primary unmentioned group text to queue and record, ok=%v planned=%#v recorded=%v", ok, planned, recorded)
+	}
+}
+
+func TestPlanInboundMessageEventIgnoresUnmentionedGroupTextWhenPrimaryPermissionMissing(t *testing.T) {
+	recorded := false
+	env := InboundEnv{
+		GatewayID:                     "app-1",
+		BotOpenID:                     "ou_bot",
+		ParseTextActionWithoutCatalog: parseTextAction,
+		PrimaryGatewayForChat: func(chatID string) string {
+			return "app-1"
+		},
+		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
+			return false
+		},
+		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
+			recorded = true
+		},
+	}
+	event := groupTextEventWithoutMention("om-msg-primary-missing", "oc_chat", "请接一下")
+
+	planned, ok, err := PlanInboundMessageEvent(env, event)
+	if err != nil {
+		t.Fatalf("PlanInboundMessageEvent returned error: %v", err)
+	}
+	if ok || planned.Action != nil || planned.Queue != nil || recorded {
+		t.Fatalf("expected missing primary permission to ignore without recording, ok=%v planned=%#v recorded=%v", ok, planned, recorded)
+	}
+}
+
+func TestPlanInboundMessageEventIgnoresUnmentionedGroupTextForNonPrimaryGateway(t *testing.T) {
+	recorded := false
+	env := InboundEnv{
+		GatewayID:                     "app-2",
+		BotOpenID:                     "ou_bot",
+		ParseTextActionWithoutCatalog: parseTextAction,
+		PrimaryGatewayForChat: func(chatID string) string {
+			return "app-1"
+		},
+		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
+			t.Fatalf("non-primary gateway should not check permission")
+			return false
+		},
+		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
+			recorded = true
+		},
+	}
+	event := groupTextEventWithoutMention("om-msg-non-primary", "oc_chat", "请接一下")
+
+	planned, ok, err := PlanInboundMessageEvent(env, event)
+	if err != nil {
+		t.Fatalf("PlanInboundMessageEvent returned error: %v", err)
+	}
+	if ok || planned.Action != nil || planned.Queue != nil || recorded {
+		t.Fatalf("expected non-primary gateway to ignore without recording, ok=%v planned=%#v recorded=%v", ok, planned, recorded)
+	}
+}
+
+func TestPlanInboundMessageEventQueuesUnmentionedGroupImageAndFileForPrimaryGateway(t *testing.T) {
+	recorded := []string{}
+	env := InboundEnv{
+		GatewayID: "app-1",
+		BotOpenID: "ou_bot",
+		PrimaryGatewayForChat: func(chatID string) string {
+			return "app-1"
+		},
+		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
+			return true
+		},
+		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
+			recorded = append(recorded, messageID+"@"+surfaceSessionID)
+		},
+	}
+
+	imagePlanned, imageOK, err := PlanInboundMessageEvent(env, groupMediaEventWithoutMention("om-img-primary", "oc_chat", "image", `{"image_key":"img-key"}`))
+	if err != nil {
+		t.Fatalf("PlanInboundMessageEvent image returned error: %v", err)
+	}
+	if !imageOK || imagePlanned.Queue == nil || imagePlanned.Queue.messageType != "image" || imagePlanned.Queue.imageKey != "img-key" {
+		t.Fatalf("expected primary unmentioned group image to queue, ok=%v planned=%#v", imageOK, imagePlanned)
+	}
+
+	filePlanned, fileOK, err := PlanInboundMessageEvent(env, groupMediaEventWithoutMention("om-file-primary", "oc_chat", "file", `{"file_key":"file-key","file_name":"report.md"}`))
+	if err != nil {
+		t.Fatalf("PlanInboundMessageEvent file returned error: %v", err)
+	}
+	if !fileOK || filePlanned.Queue == nil || filePlanned.Queue.messageType != "file" || filePlanned.Queue.fileKey != "file-key" || filePlanned.Queue.fileName != "report.md" {
+		t.Fatalf("expected primary unmentioned group file to queue, ok=%v planned=%#v", fileOK, filePlanned)
+	}
+
+	want := []string{
+		"om-img-primary@feishu:app-1:chat:oc_chat",
+		"om-file-primary@feishu:app-1:chat:oc_chat",
+	}
+	if strings.Join(recorded, "|") != strings.Join(want, "|") {
+		t.Fatalf("recorded = %#v, want %#v", recorded, want)
+	}
+}
+
+func TestPlanInboundMessageEventIgnoresUnmentionedGroupMediaForNonPrimaryBeforeParsing(t *testing.T) {
+	recorded := false
+	env := InboundEnv{
+		GatewayID: "app-2",
+		BotOpenID: "ou_bot",
+		PrimaryGatewayForChat: func(chatID string) string {
+			return "app-1"
+		},
+		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
+			t.Fatalf("non-primary gateway should not check permission")
+			return false
+		},
+		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
+			recorded = true
+		},
+	}
+
+	for _, messageType := range []string{"image", "file"} {
+		planned, ok, err := PlanInboundMessageEvent(env, groupMediaEventWithoutMention("om-"+messageType+"-non-primary", "oc_chat", messageType, `not-json`))
+		if err != nil {
+			t.Fatalf("non-primary %s should be ignored before parsing, got error: %v", messageType, err)
+		}
+		if ok || planned.Action != nil || planned.Queue != nil || recorded {
+			t.Fatalf("expected non-primary %s to ignore without recording, ok=%v planned=%#v recorded=%v", messageType, ok, planned, recorded)
+		}
+	}
+}
+
 func TestParseMessageEventIgnoresGroupTextWhenNotMentionedCurrentBot(t *testing.T) {
 	env := InboundEnv{
 		GatewayID:                     "app-2",
@@ -196,6 +356,42 @@ func TestPlanInboundMessageEventKeepsP2PWithoutMention(t *testing.T) {
 	}
 	if !ok || planned.Queue == nil {
 		t.Fatalf("expected p2p message without mention to be queued, ok=%v planned=%#v", ok, planned)
+	}
+}
+
+func groupTextEventWithoutMention(messageID, chatID, text string) *larkim.P2MessageReceiveV1 {
+	return &larkim.P2MessageReceiveV1{
+		Event: &larkim.P2MessageReceiveV1Data{
+			Sender: &larkim.EventSender{
+				SenderId:   &larkim.UserId{OpenId: stringRef("ou_user")},
+				SenderType: stringRef("user"),
+			},
+			Message: &larkim.EventMessage{
+				MessageId:   stringRef(messageID),
+				ChatId:      stringRef(chatID),
+				ChatType:    stringRef("group"),
+				MessageType: stringRef("text"),
+				Content:     stringRef(`{"text":"` + text + `"}`),
+			},
+		},
+	}
+}
+
+func groupMediaEventWithoutMention(messageID, chatID, messageType, content string) *larkim.P2MessageReceiveV1 {
+	return &larkim.P2MessageReceiveV1{
+		Event: &larkim.P2MessageReceiveV1Data{
+			Sender: &larkim.EventSender{
+				SenderId:   &larkim.UserId{OpenId: stringRef("ou_user")},
+				SenderType: stringRef("user"),
+			},
+			Message: &larkim.EventMessage{
+				MessageId:   stringRef(messageID),
+				ChatId:      stringRef(chatID),
+				ChatType:    stringRef("group"),
+				MessageType: stringRef(messageType),
+				Content:     stringRef(content),
+			},
+		},
 	}
 }
 

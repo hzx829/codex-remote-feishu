@@ -153,6 +153,8 @@ func (a *App) applyRuntimeFeishuConfig(cfg config.AppConfig, gatewayID string) e
 		return err
 	}
 	if runtimeCfg, ok := a.runtimeGatewayConfigFor(cfg, gatewayID); ok {
+		runtimeCfg.PrimaryGatewayForChat = a.service.FeishuRoomPrimaryGateway
+		runtimeCfg.PrimaryGatewayPermissionAllowed = a.primaryBotPermissionCachedAllowed
 		if err := controller.UpsertApp(context.Background(), runtimeCfg); err != nil {
 			return err
 		}

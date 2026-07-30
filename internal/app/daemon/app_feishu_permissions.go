@@ -277,15 +277,6 @@ func (a *App) cachedPrimaryBotPermission(gatewayID string, now time.Time) (feish
 	return cached, true
 }
 
-func (a *App) primaryBotPermissionCachedAllowed(gatewayID string) bool {
-	gatewayID = canonicalGatewayID(gatewayID)
-	if gatewayID == "" {
-		return false
-	}
-	cached, ok := a.cachedPrimaryBotPermission(gatewayID, time.Now().UTC())
-	return ok && cached.Allowed
-}
-
 func (a *App) storePrimaryBotPermissionCache(gatewayID string, decision orchestrator.PrimaryBotPermissionDecision, now time.Time, forceRefreshed bool) {
 	a.feishuRuntime.permissionMu.Lock()
 	defer a.feishuRuntime.permissionMu.Unlock()

@@ -134,8 +134,7 @@ func (a *App) gatewayRuntimeHooks() gatewayRuntimeHooks {
 		return gatewayRuntimeHooks{}
 	}
 	return gatewayRuntimeHooks{
-		PrimaryGatewayForChat:           a.service.FeishuRoomPrimaryGateway,
-		PrimaryGatewayPermissionAllowed: a.primaryBotPermissionCachedAllowed,
+		PrimaryGatewayForChat: a.service.FeishuRoomPrimaryGateway,
 	}
 }
 

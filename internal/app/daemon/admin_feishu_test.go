@@ -860,9 +860,6 @@ func TestRuntimeGatewayConfigForIncludesPrimaryRuntimeHooks(t *testing.T) {
 	if runtimeCfg.PrimaryGatewayForChat == nil {
 		t.Fatal("expected PrimaryGatewayForChat hook")
 	}
-	if runtimeCfg.PrimaryGatewayPermissionAllowed == nil {
-		t.Fatal("expected PrimaryGatewayPermissionAllowed hook")
-	}
 }
 
 func newFeishuAdminTestApp(t *testing.T, cfg config.AppConfig, services config.ServicesConfig, gateway feishu.GatewayController, envOverrideActive bool, envOverrideGatewayID string) (*App, string) {

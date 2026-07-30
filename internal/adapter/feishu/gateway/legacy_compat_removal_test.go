@@ -109,12 +109,6 @@ func TestPlanInboundMessageEventQueuesUnmentionedGroupTextForPrimaryGateway(t *t
 			}
 			return "app-1"
 		},
-		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
-			if gatewayID != "app-1" {
-				t.Fatalf("permission lookup gateway = %q, want app-1", gatewayID)
-			}
-			return true
-		},
 		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
 			recorded = true
 			if messageID != "om-msg-primary" || surfaceSessionID != "feishu:app-1:chat:oc_chat" {
@@ -133,7 +127,7 @@ func TestPlanInboundMessageEventQueuesUnmentionedGroupTextForPrimaryGateway(t *t
 	}
 }
 
-func TestPlanInboundMessageEventIgnoresUnmentionedGroupTextWhenPrimaryPermissionMissing(t *testing.T) {
+func TestPlanInboundMessageEventQueuesUnmentionedGroupTextWhenPrimaryPermissionCacheMissing(t *testing.T) {
 	recorded := false
 	env := InboundEnv{
 		GatewayID:                     "app-1",
@@ -141,9 +135,6 @@ func TestPlanInboundMessageEventIgnoresUnmentionedGroupTextWhenPrimaryPermission
 		ParseTextActionWithoutCatalog: parseTextAction,
 		PrimaryGatewayForChat: func(chatID string) string {
 			return "app-1"
-		},
-		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
-			return false
 		},
 		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
 			recorded = true
@@ -155,8 +146,8 @@ func TestPlanInboundMessageEventIgnoresUnmentionedGroupTextWhenPrimaryPermission
 	if err != nil {
 		t.Fatalf("PlanInboundMessageEvent returned error: %v", err)
 	}
-	if ok || planned.Action != nil || planned.Queue != nil || recorded {
-		t.Fatalf("expected missing primary permission to ignore without recording, ok=%v planned=%#v recorded=%v", ok, planned, recorded)
+	if !ok || planned.Queue == nil || planned.Queue.text != "请接一下" || !recorded {
+		t.Fatalf("expected primary unmentioned group text to queue even when permission cache is missing, ok=%v planned=%#v recorded=%v", ok, planned, recorded)
 	}
 }
 
@@ -168,10 +159,6 @@ func TestPlanInboundMessageEventIgnoresUnmentionedGroupTextForNonPrimaryGateway(
 		ParseTextActionWithoutCatalog: parseTextAction,
 		PrimaryGatewayForChat: func(chatID string) string {
 			return "app-1"
-		},
-		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
-			t.Fatalf("non-primary gateway should not check permission")
-			return false
 		},
 		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
 			recorded = true
@@ -195,9 +182,6 @@ func TestPlanInboundMessageEventQueuesUnmentionedGroupImageAndFileForPrimaryGate
 		BotOpenID: "ou_bot",
 		PrimaryGatewayForChat: func(chatID string) string {
 			return "app-1"
-		},
-		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
-			return true
 		},
 		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
 			recorded = append(recorded, messageID+"@"+surfaceSessionID)
@@ -236,10 +220,6 @@ func TestPlanInboundMessageEventIgnoresUnmentionedGroupMediaForNonPrimaryBeforeP
 		BotOpenID: "ou_bot",
 		PrimaryGatewayForChat: func(chatID string) string {
 			return "app-1"
-		},
-		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
-			t.Fatalf("non-primary gateway should not check permission")
-			return false
 		},
 		RecordSurfaceMessage: func(messageID, surfaceSessionID string) {
 			recorded = true

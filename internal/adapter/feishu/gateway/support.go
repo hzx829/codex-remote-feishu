@@ -160,12 +160,6 @@ func unmentionedGroupMessageGateReason(env InboundEnv, message *larkim.EventMess
 	if primaryGatewayID != strings.TrimSpace(env.GatewayID) {
 		return "ignored_not_primary_gateway"
 	}
-	if env.PrimaryGatewayPermissionAllowed == nil {
-		return "ignored_primary_permission_unknown"
-	}
-	if !env.PrimaryGatewayPermissionAllowed(primaryGatewayID) {
-		return "ignored_primary_permission_missing"
-	}
 	return ""
 }
 

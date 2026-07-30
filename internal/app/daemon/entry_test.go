@@ -90,7 +90,7 @@ func TestRuntimeGatewayAppsAppliesRuntimeOverrideCredentials(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeGatewayAppsIncludesRuntimeHooks(t *testing.T) {
+func TestBuildRuntimeGatewayAppsIncludesPrimaryLookupHook(t *testing.T) {
 	appConfig := config.DefaultAppConfig()
 	appConfig.Feishu.Apps = []config.FeishuAppConfig{{
 		ID:        "app-1",
@@ -100,7 +100,6 @@ func TestBuildRuntimeGatewayAppsIncludesRuntimeHooks(t *testing.T) {
 	services := config.ServicesConfig{}
 	paths := relayruntime.Paths{StateDir: "/tmp/state"}
 	lookupCalls := 0
-	permissionCalls := 0
 
 	apps := buildRuntimeGatewayApps(appConfig, services, paths, gatewayRuntimeHooks{
 		PrimaryGatewayForChat: func(chatID string) string {
@@ -110,13 +109,6 @@ func TestBuildRuntimeGatewayAppsIncludesRuntimeHooks(t *testing.T) {
 			}
 			return "app-1"
 		},
-		PrimaryGatewayPermissionAllowed: func(gatewayID string) bool {
-			permissionCalls++
-			if gatewayID != "app-1" {
-				t.Fatalf("gateway id = %q, want app-1", gatewayID)
-			}
-			return true
-		},
 	})
 	if len(apps) != 1 {
 		t.Fatalf("expected one runtime app, got %#v", apps)
@@ -124,17 +116,11 @@ func TestBuildRuntimeGatewayAppsIncludesRuntimeHooks(t *testing.T) {
 	if apps[0].PrimaryGatewayForChat == nil {
 		t.Fatal("expected PrimaryGatewayForChat hook")
 	}
-	if apps[0].PrimaryGatewayPermissionAllowed == nil {
-		t.Fatal("expected PrimaryGatewayPermissionAllowed hook")
-	}
 	if got := apps[0].PrimaryGatewayForChat("oc_chat"); got != "app-1" {
 		t.Fatalf("PrimaryGatewayForChat() = %q, want app-1", got)
 	}
-	if !apps[0].PrimaryGatewayPermissionAllowed("app-1") {
-		t.Fatal("expected PrimaryGatewayPermissionAllowed to allow app-1")
-	}
-	if lookupCalls != 1 || permissionCalls != 1 {
-		t.Fatalf("unexpected hook call counts: lookup=%d permission=%d", lookupCalls, permissionCalls)
+	if lookupCalls != 1 {
+		t.Fatalf("unexpected hook call count: lookup=%d", lookupCalls)
 	}
 }
 

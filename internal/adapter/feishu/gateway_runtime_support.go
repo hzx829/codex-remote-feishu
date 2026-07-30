@@ -44,12 +44,11 @@ func (g *LiveGateway) inboundEnv() gatewaypkg.InboundEnv {
 			}
 			return payload.Summary, payload.Inputs, nil
 		},
-		RecordSurfaceMessage:            g.recordSurfaceMessage,
-		PrimaryGatewayForChat:           g.config.PrimaryGatewayForChat,
-		PrimaryGatewayPermissionAllowed: g.config.PrimaryGatewayPermissionAllowed,
-		DownloadImage:                   g.downloadImageFn,
-		DownloadFile:                    g.downloadFileFn,
-		DeliverAsyncInboundFailure:      g.deliverAsyncInboundFailure,
+		RecordSurfaceMessage:       g.recordSurfaceMessage,
+		PrimaryGatewayForChat:      g.config.PrimaryGatewayForChat,
+		DownloadImage:              g.downloadImageFn,
+		DownloadFile:               g.downloadFileFn,
+		DeliverAsyncInboundFailure: g.deliverAsyncInboundFailure,
 	}
 }
 

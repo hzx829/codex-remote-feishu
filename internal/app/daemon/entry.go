@@ -303,8 +303,7 @@ func resolveDesktopSessionInstanceID() string {
 }
 
 type gatewayRuntimeHooks struct {
-	PrimaryGatewayForChat           func(chatID string) string
-	PrimaryGatewayPermissionAllowed func(gatewayID string) bool
+	PrimaryGatewayForChat func(chatID string) string
 }
 
 func buildRuntimeGatewayApps(appConfig config.AppConfig, services config.ServicesConfig, paths relayruntime.Paths, hooks gatewayRuntimeHooks) []feishu.GatewayAppConfig {
@@ -356,18 +355,17 @@ build:
 		}
 		enabled := app.Enabled == nil || *app.Enabled
 		values = append(values, feishu.GatewayAppConfig{
-			GatewayID:                       gatewayID,
-			Name:                            strings.TrimSpace(app.Name),
-			AppID:                           strings.TrimSpace(app.AppID),
-			AppSecret:                       strings.TrimSpace(app.AppSecret),
-			Enabled:                         enabled,
-			UseSystemProxy:                  services.FeishuUseSystemProxy,
-			ImageTempDir:                    filepath.Join(paths.StateDir, "image-staging", sanitizeGatewayPath(gatewayID)),
-			PreviewStatePath:                filepath.Join(paths.StateDir, "feishu-md-preview-"+sanitizeGatewayPath(gatewayID)+".json"),
-			PreviewCacheDir:                 filepath.Join(paths.DataDir, "preview-cache", sanitizeGatewayPath(gatewayID)),
-			PreviewRootFolderName:           strings.TrimSpace(appConfig.Storage.PreviewRootFolderName),
-			PrimaryGatewayForChat:           hooks.PrimaryGatewayForChat,
-			PrimaryGatewayPermissionAllowed: hooks.PrimaryGatewayPermissionAllowed,
+			GatewayID:             gatewayID,
+			Name:                  strings.TrimSpace(app.Name),
+			AppID:                 strings.TrimSpace(app.AppID),
+			AppSecret:             strings.TrimSpace(app.AppSecret),
+			Enabled:               enabled,
+			UseSystemProxy:        services.FeishuUseSystemProxy,
+			ImageTempDir:          filepath.Join(paths.StateDir, "image-staging", sanitizeGatewayPath(gatewayID)),
+			PreviewStatePath:      filepath.Join(paths.StateDir, "feishu-md-preview-"+sanitizeGatewayPath(gatewayID)+".json"),
+			PreviewCacheDir:       filepath.Join(paths.DataDir, "preview-cache", sanitizeGatewayPath(gatewayID)),
+			PreviewRootFolderName: strings.TrimSpace(appConfig.Storage.PreviewRootFolderName),
+			PrimaryGatewayForChat: hooks.PrimaryGatewayForChat,
 		})
 	}
 	return values

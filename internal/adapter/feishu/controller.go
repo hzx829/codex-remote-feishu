@@ -29,19 +29,18 @@ type PermissionBlockController interface {
 }
 
 type GatewayAppConfig struct {
-	GatewayID                       string
-	Name                            string
-	AppID                           string
-	AppSecret                       string
-	Domain                          string
-	Enabled                         bool
-	UseSystemProxy                  bool
-	ImageTempDir                    string
-	PreviewStatePath                string
-	PreviewCacheDir                 string
-	PreviewRootFolderName           string
-	PrimaryGatewayForChat           func(chatID string) string
-	PrimaryGatewayPermissionAllowed func(gatewayID string) bool
+	GatewayID             string
+	Name                  string
+	AppID                 string
+	AppSecret             string
+	Domain                string
+	Enabled               bool
+	UseSystemProxy        bool
+	ImageTempDir          string
+	PreviewStatePath      string
+	PreviewCacheDir       string
+	PreviewRootFolderName string
+	PrimaryGatewayForChat func(chatID string) string
 }
 
 type GatewayStatus struct {
@@ -91,14 +90,13 @@ func NewMultiGatewayController() *MultiGatewayController {
 	}
 	controller.newGateway = func(cfg GatewayAppConfig) gatewayRuntime {
 		return NewLiveGateway(LiveGatewayConfig{
-			GatewayID:                       cfg.GatewayID,
-			AppID:                           cfg.AppID,
-			AppSecret:                       cfg.AppSecret,
-			Domain:                          cfg.Domain,
-			TempDir:                         cfg.ImageTempDir,
-			UseSystemProxy:                  cfg.UseSystemProxy,
-			PrimaryGatewayForChat:           cfg.PrimaryGatewayForChat,
-			PrimaryGatewayPermissionAllowed: cfg.PrimaryGatewayPermissionAllowed,
+			GatewayID:             cfg.GatewayID,
+			AppID:                 cfg.AppID,
+			AppSecret:             cfg.AppSecret,
+			Domain:                cfg.Domain,
+			TempDir:               cfg.ImageTempDir,
+			UseSystemProxy:        cfg.UseSystemProxy,
+			PrimaryGatewayForChat: cfg.PrimaryGatewayForChat,
 		})
 	}
 	controller.newPreviewer = func(runtime gatewayRuntime, cfg GatewayAppConfig) gatewayPreviewRuntime {

@@ -70,11 +70,6 @@ func RunMainWithArgs(ctx context.Context, args []string, version, branch string)
 	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
 
 	controller := feishu.NewMultiGatewayController()
-	for _, app := range runtimeGatewayApps(loadedConfig.Config, cfg, paths) {
-		if err := controller.UpsertApp(ctx, app); err != nil {
-			return err
-		}
-	}
 	var gateway feishu.Gateway = controller
 	var finalBlockPreviewer previewpkg.FinalBlockPreviewService = controller
 	lock, err := relayruntime.AcquireLock(ctx, paths.DaemonLockFile, false)
@@ -154,6 +149,11 @@ func RunMainWithArgs(ctx context.Context, args []string, version, branch string)
 		EnvOverrideActive:    envOverrideActive,
 		EnvOverrideGatewayID: cfg.FeishuGatewayID,
 	})
+	for _, gatewayApp := range app.runtimeGatewayApps(loadedConfig.Config) {
+		if err := controller.UpsertApp(ctx, gatewayApp); err != nil {
+			return err
+		}
+	}
 	app.ConfigurePprof(pprofBindAddrForDebugSettings(loadedConfig.Config.Debug))
 	if cfg.DebugRelayRaw {
 		rawLogger, err := debuglog.OpenRaw(paths.DaemonRawLogFile, "daemon", "", os.Getpid())
@@ -302,7 +302,12 @@ func resolveDesktopSessionInstanceID() string {
 	return strings.TrimSpace(info.InstanceID)
 }
 
-func runtimeGatewayApps(appConfig config.AppConfig, services config.ServicesConfig, paths relayruntime.Paths) []feishu.GatewayAppConfig {
+type gatewayRuntimeHooks struct {
+	PrimaryGatewayForChat           func(chatID string) string
+	PrimaryGatewayPermissionAllowed func(gatewayID string) bool
+}
+
+func buildRuntimeGatewayApps(appConfig config.AppConfig, services config.ServicesConfig, paths relayruntime.Paths, hooks gatewayRuntimeHooks) []feishu.GatewayAppConfig {
 	runtimeApps := make([]config.FeishuAppConfig, 0, len(appConfig.Feishu.Apps))
 	for _, app := range appConfig.Feishu.Apps {
 		if strings.TrimSpace(app.ID) == "" {
@@ -351,19 +356,25 @@ build:
 		}
 		enabled := app.Enabled == nil || *app.Enabled
 		values = append(values, feishu.GatewayAppConfig{
-			GatewayID:             gatewayID,
-			Name:                  strings.TrimSpace(app.Name),
-			AppID:                 strings.TrimSpace(app.AppID),
-			AppSecret:             strings.TrimSpace(app.AppSecret),
-			Enabled:               enabled,
-			UseSystemProxy:        services.FeishuUseSystemProxy,
-			ImageTempDir:          filepath.Join(paths.StateDir, "image-staging", sanitizeGatewayPath(gatewayID)),
-			PreviewStatePath:      filepath.Join(paths.StateDir, "feishu-md-preview-"+sanitizeGatewayPath(gatewayID)+".json"),
-			PreviewCacheDir:       filepath.Join(paths.DataDir, "preview-cache", sanitizeGatewayPath(gatewayID)),
-			PreviewRootFolderName: strings.TrimSpace(appConfig.Storage.PreviewRootFolderName),
+			GatewayID:                       gatewayID,
+			Name:                            strings.TrimSpace(app.Name),
+			AppID:                           strings.TrimSpace(app.AppID),
+			AppSecret:                       strings.TrimSpace(app.AppSecret),
+			Enabled:                         enabled,
+			UseSystemProxy:                  services.FeishuUseSystemProxy,
+			ImageTempDir:                    filepath.Join(paths.StateDir, "image-staging", sanitizeGatewayPath(gatewayID)),
+			PreviewStatePath:                filepath.Join(paths.StateDir, "feishu-md-preview-"+sanitizeGatewayPath(gatewayID)+".json"),
+			PreviewCacheDir:                 filepath.Join(paths.DataDir, "preview-cache", sanitizeGatewayPath(gatewayID)),
+			PreviewRootFolderName:           strings.TrimSpace(appConfig.Storage.PreviewRootFolderName),
+			PrimaryGatewayForChat:           hooks.PrimaryGatewayForChat,
+			PrimaryGatewayPermissionAllowed: hooks.PrimaryGatewayPermissionAllowed,
 		})
 	}
 	return values
+}
+
+func runtimeGatewayApps(appConfig config.AppConfig, services config.ServicesConfig, paths relayruntime.Paths) []feishu.GatewayAppConfig {
+	return buildRuntimeGatewayApps(appConfig, services, paths, gatewayRuntimeHooks{})
 }
 
 func sanitizeGatewayPath(gatewayID string) string {

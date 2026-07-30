@@ -841,6 +841,30 @@ func TestFeishuAppsListMarksEnvOverrideReadOnly(t *testing.T) {
 	}
 }
 
+func TestRuntimeGatewayConfigForIncludesPrimaryRuntimeHooks(t *testing.T) {
+	enabled := true
+	cfg := config.DefaultAppConfig()
+	cfg.Feishu.Apps = []config.FeishuAppConfig{{
+		ID:        "app-1",
+		AppID:     "cli_app_1",
+		AppSecret: "secret_app_1",
+		Enabled:   &enabled,
+	}}
+	gateway := &fakeAdminGatewayController{}
+	app, _ := newFeishuAdminTestApp(t, cfg, defaultFeishuServices(), gateway, false, "")
+
+	runtimeCfg, ok := app.runtimeGatewayConfigFor(cfg, "app-1")
+	if !ok {
+		t.Fatal("expected runtime config for app-1")
+	}
+	if runtimeCfg.PrimaryGatewayForChat == nil {
+		t.Fatal("expected PrimaryGatewayForChat hook")
+	}
+	if runtimeCfg.PrimaryGatewayPermissionAllowed == nil {
+		t.Fatal("expected PrimaryGatewayPermissionAllowed hook")
+	}
+}
+
 func newFeishuAdminTestApp(t *testing.T, cfg config.AppConfig, services config.ServicesConfig, gateway feishu.GatewayController, envOverrideActive bool, envOverrideGatewayID string) (*App, string) {
 	t.Helper()
 

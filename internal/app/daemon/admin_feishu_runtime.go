@@ -129,6 +129,24 @@ func (a *App) snapshotAdminRuntime() adminRuntimeState {
 	return a.admin
 }
 
+func (a *App) gatewayRuntimeHooks() gatewayRuntimeHooks {
+	if a == nil {
+		return gatewayRuntimeHooks{}
+	}
+	return gatewayRuntimeHooks{
+		PrimaryGatewayForChat:           a.service.FeishuRoomPrimaryGateway,
+		PrimaryGatewayPermissionAllowed: a.primaryBotPermissionCachedAllowed,
+	}
+}
+
+func (a *App) runtimeGatewayApps(cfg config.AppConfig) []feishu.GatewayAppConfig {
+	if a == nil {
+		return nil
+	}
+	admin := a.snapshotAdminRuntime()
+	return buildRuntimeGatewayApps(cfg, admin.services, a.headlessRuntime.Paths, a.gatewayRuntimeHooks())
+}
+
 func (a *App) gatewayController() (feishu.GatewayController, error) {
 	controller, ok := a.gateway.(feishu.GatewayController)
 	if !ok {
@@ -138,8 +156,7 @@ func (a *App) gatewayController() (feishu.GatewayController, error) {
 }
 
 func (a *App) runtimeGatewayConfigFor(cfg config.AppConfig, gatewayID string) (feishu.GatewayAppConfig, bool) {
-	admin := a.snapshotAdminRuntime()
-	for _, app := range runtimeGatewayApps(cfg, admin.services, a.headlessRuntime.Paths) {
+	for _, app := range a.runtimeGatewayApps(cfg) {
 		if canonicalGatewayID(app.GatewayID) == canonicalGatewayID(gatewayID) {
 			return app, true
 		}
@@ -153,8 +170,6 @@ func (a *App) applyRuntimeFeishuConfig(cfg config.AppConfig, gatewayID string) e
 		return err
 	}
 	if runtimeCfg, ok := a.runtimeGatewayConfigFor(cfg, gatewayID); ok {
-		runtimeCfg.PrimaryGatewayForChat = a.service.FeishuRoomPrimaryGateway
-		runtimeCfg.PrimaryGatewayPermissionAllowed = a.primaryBotPermissionCachedAllowed
 		if err := controller.UpsertApp(context.Background(), runtimeCfg); err != nil {
 			return err
 		}

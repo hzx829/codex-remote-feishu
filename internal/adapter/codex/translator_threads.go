@@ -85,6 +85,10 @@ func parseThreadRecord(result any) agentproto.ThreadSnapshotRecord {
 			lookupStringFromAny(object["preview"]),
 			lookupStringFromAny(object["summary"]),
 		),
+		WorkspaceKey: choose(
+			lookupStringFromAny(object["workspaceKey"]),
+			lookupStringFromAny(object["workspace_key"]),
+		),
 		CWD: choose(
 			lookupStringFromAny(object["cwd"]),
 			lookupStringFromAny(object["path"]),

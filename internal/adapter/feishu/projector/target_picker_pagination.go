@@ -147,9 +147,13 @@ func targetPickerWorkspaceLaneWithLabel(view control.FeishuTargetPickerView, lab
 }
 
 func targetPickerSessionLane(view control.FeishuTargetPickerView) paginatedSelectFlowLane {
+	label := "会话"
+	if view.ShowWorkspaceSelect && !view.WorkspaceSelectionLocked {
+		label = "该工作区的会话"
+	}
 	return paginatedSelectFlowLane{
 		Flow:          selectflow.TargetPickerSessionFlow,
-		Label:         "会话",
+		Label:         label,
 		Placeholder:   firstNonEmpty(strings.TrimSpace(view.SessionPlaceholder), "选择会话"),
 		Cursor:        view.SessionCursor,
 		SelectedValue: strings.TrimSpace(view.SelectedSessionValue),

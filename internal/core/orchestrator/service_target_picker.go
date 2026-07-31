@@ -657,6 +657,9 @@ func (s *Service) buildTargetPickerView(surface *state.SurfaceConsoleRecord, rec
 	record.GitFinalPath = gitFinalPath
 	showWorkspaceSelect := page == control.FeishuTargetPickerPageTarget && !workspaceSelectionLocked
 	showSessionSelect := page == control.FeishuTargetPickerPageTarget && !topicWorkspaceBinding
+	if showWorkspaceSelect && showSessionSelect && strings.TrimSpace(hint) == "" {
+		hint = "选择工作区后，下方只显示该工作区的会话。"
+	}
 	canCancelProcessing := stage == control.FeishuTargetPickerStageProcessing &&
 		(record.PendingKind == targetPickerPendingGitImport || record.PendingKind == targetPickerPendingWorktreeCreate)
 	processingCancelLabel := ""

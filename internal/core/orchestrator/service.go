@@ -627,7 +627,7 @@ func (s *Service) ApplyAgentEvent(instanceID string, event agentproto.Event) []e
 			if current == nil {
 				current = &state.ThreadRecord{ThreadID: thread.ThreadID}
 			}
-			current.WorkspaceKey = state.ResolveWorkspaceKey(thread.WorkspaceKey, current.WorkspaceKey, inst.WorkspaceKey, inst.WorkspaceRoot)
+			current.WorkspaceKey = state.ResolveWorkspaceKey(thread.WorkspaceKey, thread.CWD, current.WorkspaceKey, inst.WorkspaceKey, inst.WorkspaceRoot)
 			current.TrafficClass = agentproto.TrafficClassPrimary
 			if thread.Name != "" {
 				current.Name = thread.Name

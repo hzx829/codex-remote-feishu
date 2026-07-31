@@ -112,7 +112,7 @@ func previewPrincipals(surfaceSessionID, chatID, actorUserID string) []previewPr
 		seen[userPrincipal.Key] = true
 		values = append(values, userPrincipal)
 	}
-	if ref, ok := feishuidentity.ParseSurfaceRef(surfaceSessionID); ok && ref.IsChat() {
+	if ref, ok := feishuidentity.ParseSurfaceRef(surfaceSessionID); ok && (ref.IsChat() || ref.IsThread()) {
 		if chatPrincipal, ok := previewChatPrincipal(chatID); ok && !seen[chatPrincipal.Key] {
 			seen[chatPrincipal.Key] = true
 			values = append(values, chatPrincipal)

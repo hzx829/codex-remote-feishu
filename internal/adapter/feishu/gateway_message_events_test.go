@@ -522,6 +522,9 @@ func TestParseMessageEventHandlesMergeForwardMessage(t *testing.T) {
 	if !ok || action.Kind != control.ActionTextMessage {
 		t.Fatalf("expected merge forward message to be handled, got ok=%v action=%#v", ok, action)
 	}
+	if action.SurfaceSessionID != "feishu:app-1:thread:omt-thread-1" {
+		t.Fatalf("expected merge forward message to stay in topic surface, got %#v", action)
+	}
 	if action.Text != "Forwarded chat\nfirst line" {
 		t.Fatalf("unexpected merge forward summary: %#v", action)
 	}
@@ -845,6 +848,9 @@ func TestParseMessageEventBuildsFileAction(t *testing.T) {
 	}
 	if !ok || action.Kind != control.ActionFileMessage {
 		t.Fatalf("expected file message action, got ok=%v action=%#v", ok, action)
+	}
+	if action.SurfaceSessionID != "feishu:app-1:thread:omt-thread-1" {
+		t.Fatalf("expected file message to stay in topic surface, got %#v", action)
 	}
 	if action.LocalPath != "/tmp/notes.txt" || action.FileName != "notes.txt" {
 		t.Fatalf("unexpected file action payload: %#v", action)

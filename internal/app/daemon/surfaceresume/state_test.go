@@ -54,3 +54,31 @@ func TestLoadStoreMarksRepairedHeadlessWorkspaceDirty(t *testing.T) {
 		t.Fatal("expected repaired state to be marked dirty for persistence")
 	}
 }
+
+func TestCanonicalizeEntriesKeepsFeishuTopicsAsDistinctSessionBindings(t *testing.T) {
+	entries, _ := CanonicalizeEntries(map[string]Entry{
+		"feishu:app-1:thread:omt_1": {
+			SurfaceSessionID: "feishu:app-1:thread:omt_1",
+			GatewayID:        "app-1",
+			ChatID:           "oc_room",
+			ProductMode:      "normal",
+			Backend:          "codex",
+			ResumeThreadID:   "thread-1",
+		},
+		"feishu:app-1:thread:omt_2": {
+			SurfaceSessionID: "feishu:app-1:thread:omt_2",
+			GatewayID:        "app-1",
+			ChatID:           "oc_room",
+			ProductMode:      "normal",
+			Backend:          "codex",
+			ResumeThreadID:   "thread-2",
+		},
+	})
+	if len(entries) != 2 {
+		t.Fatalf("topic binding count = %d, want 2", len(entries))
+	}
+	if entries["feishu:app-1:thread:omt_1"].ResumeThreadID != "thread-1" ||
+		entries["feishu:app-1:thread:omt_2"].ResumeThreadID != "thread-2" {
+		t.Fatalf("expected each topic to keep its own Codex session, got %#v", entries)
+	}
+}

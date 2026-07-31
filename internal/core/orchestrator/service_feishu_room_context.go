@@ -337,5 +337,13 @@ func surfaceIsFeishuChat(surface *state.SurfaceConsoleRecord) bool {
 		return false
 	}
 	ref, ok := feishuidentity.ParseSurfaceRef(surface.SurfaceSessionID)
-	return ok && ref.IsChat()
+	return ok && (ref.IsChat() || ref.IsThread())
+}
+
+func surfaceIsFeishuThread(surface *state.SurfaceConsoleRecord) bool {
+	if surface == nil || surface.Platform != "feishu" {
+		return false
+	}
+	ref, ok := feishuidentity.ParseSurfaceRef(surface.SurfaceSessionID)
+	return ok && ref.IsThread()
 }

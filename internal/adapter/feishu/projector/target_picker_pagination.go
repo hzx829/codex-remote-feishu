@@ -57,14 +57,17 @@ func targetPickerComposeEditingElements(view control.FeishuTargetPickerView, dae
 func targetPickerTargetPageElements(view control.FeishuTargetPickerView, daemonLifecycleID string) []map[string]any {
 	renderWorkspaceSelect := !view.WorkspaceSelectionLocked &&
 		(view.ShowWorkspaceSelect || len(view.WorkspaceOptions) != 0 || strings.TrimSpace(view.SelectedWorkspaceKey) != "")
-	renderSessionSelect := view.ShowSessionSelect ||
+	renderSessionSelect := !view.HideSessionSelect && (view.ShowSessionSelect ||
 		len(view.SessionOptions) != 0 ||
 		strings.TrimSpace(view.SelectedSessionValue) != "" ||
-		strings.TrimSpace(view.SessionPlaceholder) != ""
+		strings.TrimSpace(view.SessionPlaceholder) != "")
 
-	pagePrefix := make([]map[string]any, 0, 2)
+	pagePrefix := make([]map[string]any, 0, 4)
 	if view.WorkspaceSelectionLocked {
 		pagePrefix = appendCardTextSections(pagePrefix, targetPickerLockedWorkspaceSections(view))
+	}
+	if sections := targetPickerSelectedSessionSections(view); len(sections) != 0 {
+		pagePrefix = appendCardTextSections(pagePrefix, sections)
 	}
 
 	switch {
@@ -92,6 +95,24 @@ func targetPickerTargetPageElements(view control.FeishuTargetPickerView, daemonL
 	default:
 		return pagePrefix
 	}
+}
+
+func targetPickerSelectedSessionSections(view control.FeishuTargetPickerView) []control.FeishuCardTextSection {
+	if view.HideSessionSelect || !strings.HasPrefix(strings.TrimSpace(view.SelectedSessionValue), "thread:") {
+		return nil
+	}
+	lines := make([]string, 0, len(view.SelectedSessionDetails)+2)
+	if label := strings.TrimSpace(view.SelectedSessionLabel); label != "" {
+		lines = append(lines, label)
+	}
+	lines = append(lines, view.SelectedSessionDetails...)
+	if len(lines) == 0 {
+		return nil
+	}
+	return []control.FeishuCardTextSection{{
+		Label: "已选会话详情",
+		Lines: lines,
+	}}
 }
 
 func targetPickerWorkspaceLane(view control.FeishuTargetPickerView) paginatedSelectFlowLane {

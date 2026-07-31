@@ -10,6 +10,8 @@
 > 5. Claude managed headless 的 exact-thread restore 现在额外要求“目标 session 的 cwd 仍属于该 instance 当前 workspace”才允许原地复用；跨 workspace 旧 session 会改走 restart/fresh-start，不再把当前 attached Claude instance 的 metadata 直接 silent retarget 到别的目录。
 > `claude <-> codex` 的 headless backend 互切现在统一锚定当前工作区目录：只要切换前已有当前 workspace，surface 就会保留这份 workspace claim，并优先 attach 目标 backend 下同 workspace 的兼容在线实例；若只剩 incompatible managed headless，则会 restart 成匹配合同；若没有兼容实例，则会 fresh-start matching managed headless，并保留原来的 unbound / new-thread-ready / exact-thread continuation 意图。进入 Claude workspace 时，surface 会按 `workspace+profile` 快照恢复飞书临时 `reasoning / access` override；`plan` 不写入也不恢复这套快照，surface resume 也不跨 daemon 恢复 `PlanMode`，而 `/status` 会把“最近观察到的当前会话权限/模式”和“下条飞书消息的实际 override”分开投影。2026-05-02 的新变化是：Claude headless 的 `/reasoning` 也正式并入 headless launch contract，queue item / auto-continue / review apply 都会冻结各自目标 reasoning；真正 dispatch 前统一比较 `desired launch contract` 与 wrapper hello 上报的 observed runtime contract，若不一致则进入 `PendingHeadless(Purpose=prompt_dispatch_restart)`，由 daemon 显式 `kill + start headless`，实例重新 attach 后再自动继续原 dispatch。`/access` 与 `/plan` 仍保留动态 permission-mode 通道，不被并入这条 restart-only 合同；其中显式 `/access` override 还会额外写入 `workspace+profile` 快照，而 `plan` 不会。Codex provider 切换也已并入同一条 surface 级 headless 重启主链，切换时会沿用与 Claude profile 相同的 request-gate / busy-gate / current-workspace continuation 规则；idle detached 更新 bot record 并投影同 gateway surface，workspace 内则由发起 surface 直接重启或 fresh-start 当前工作区。其余能力仍保持此前基线：headless 的被动恢复入口（attach unbound、`selected_thread_lost`、`thread_claim_lost`）统一回到“锁定当前工作区”的 target picker，不再回退旧 scoped selection prompt；VS Code `/list` / `/use` / `/useall` 继续走结构化实例/线程卡，其中线程选择统一成当前实例内的 dropdown，并隐藏不可切换会话、改用 plain-text 提示说明。surface-level backend seam 也已正式落成真实状态：headless 下区分 `codex` / `claude` 两个 backend，workspace defaults、surface resume 与 detached catalog context 都按 backend 分区，`/mode` 的底层语义收口成 `codex|claude|vscode`，其中 `normal` 仍作为 `codex` 的兼容 alias。另一个新变化是把上游 runtime 问题自动继续从 `autowhip` 中拆成独立 `autocontinue` overlay：它由 orchestrator 本地 codex/gateway error-family policy 驱动，拥有自己的 queue lane、reply anchor、tail-only 状态卡与 backoff，不再和“正常结束后继续催活”混用；request gate 现在还补上了 `item/tool/call` 的最小 fail-closed 分支：relay / Feishu / headless 会展示只读 `tool_callback` 提示，并立即自动回写 unsupported 结构化结果，避免 tool 在中途 silent hang；同时 detached-branch 产品入口已经正式接上：普通文本里的 `[什么？]` / `[耸肩摊手]` 会分别触发 `fork_ephemeral` / `start_ephemeral`，统一复用 `keep_surface_selection`，且不会再让 detour turn 污染当前 surface 默认 thread；review mode 的 detached review session 也已接入同一条远端状态机：review thread 会带显式 `source=review` / parent-thread 元数据，surface 会在不改绑当前选中 thread 的前提下记录 `ReviewSession` runtime，并把后续审阅文本继续路由到 review thread；与此同时，普通 attach/list/use 候选现在会显式排除 `source=review` 会话，不再把 detached review thread 混进 merged thread list、current-instance dropdown 或 workspace recency。本轮还把 `process.child.restart` 收口成“两段式 restart 合同”：`ack` 只代表新 child 已接管，thread restore 结果改由独立 outcome event 回传，daemon 会对 `/bendtomywill` 与 standalone Codex upgrade 统一等待最终 outcome，因此 late restore 不会再把 patch / upgrade 误判成已失败或已完成。2026-05-06 的补充是：Claude wrapper 在“当前 child 已经 `--resume` 到某个旧 session”时，如果 surface 明确要求 `PromptExecutionMode=start_new + threadID=""`，会先把 child 重启成 fresh launch，再清掉旧的 expected-resume 影子状态，确保 `/new` 的首条消息不会重新落回被恢复的旧 Claude session。同一轮里，remote-surface 的 execution lifecycle 也已明确拆成两个 sibling seam：dispatch core 统一 owner `DispatchMode / ActiveQueueItemID / QueuedQueueItemIDs / pendingRemote / activeRemote`，recovery core 统一 owner `PendingHeadless / headless attach-fail-expire / disconnect-degraded-timeout teardown`；`prompt_dispatch_restart` 只保留显式 handshake，不再让 queue/recovery 在业务路径里平行散写同一批 carrier。注意：2026-04-29 新拍板的下一轮 Claude MVP 产品边界不再由本文定义，而改以 [Claude Backend Integration Plan](../inprogress/claude-backend-integration-plan.md) 第 `7.6` / `12.1` 节为准；本文仍只记录当前 live 实现。
 
+> 2026-07-31 补充：Feishu 群话题现在是一等 surface，identity 为 `feishu:<gatewayID>:thread:<threadID>`；同群话题共享 `feishu:chat:<chatID>` room workspace，但各自独立持有 Codex/Claude session、queue、request 与 resume binding。话题内 `/list` 只绑定工作区并准备新会话，`/use` 用于接入已有会话。
+
 ## 1. 文档定位
 
 这份文档描述的是**当前代码已经实现**的 remote surface 状态机，不是历史问题列表，也不是未来方案草稿。
@@ -88,9 +90,9 @@
 
 这个假设必须保留在文档里，避免以后误改成“按 instance 局部唯一”。
 
-### 2.2 surface 按 gateway/chat 区分，但 claim 是 relay 全局的
+### 2.2 surface 按 gateway/scope 区分，但 claim 是 relay 全局的
 
-surface 本身仍按 `gatewayID + chat/user` 区分，不同飞书 app 会形成不同 surface。
+surface 本身按 `gatewayID + user/chat/thread` 区分，不同飞书 app 会形成不同 surface。
 
 surface identity 只接受精确四段格式 `feishu:<gatewayID>:<user|chat>:<scopeID>`。`internal/feishuidentity` 是 build / parse / validate 的 SSOT；gateway、preview、daemon、state 与 orchestrator 必须直接复用该 contract，未知 scope、空字段或额外分段不得通过字符串扫描被识别成有效群聊或私聊 surface。普通消息也只保留 `PlanInboundMessageEvent -> QueuedMessageWork.parseAction` 一条 planning/parsing 主链，测试通过真实 handler 路径同步 capture action，不维护另一份 parser。
 
@@ -102,26 +104,28 @@ surface identity 只接受精确四段格式 `feishu:<gatewayID>:<user|chat>:<sc
 Feishu 群聊消息在进入 surface 状态机前还有一层 gateway 入站前置 gate：
 
 1. 私聊消息不要求 mention，继续按 `feishu:<gatewayID>:user:<preferredActorId>` 进入 surface。
-2. 群聊消息若 `mentions` 命中当前 gateway 缓存的 bot `open_id`，允许 materialize / reuse `feishu:<gatewayID>:chat:<chatID>` surface。
-3. 群聊消息若 `mentions` 存在但未命中当前 bot，fail closed 忽略，不记录 `messageID -> surfaceID`，不进入 queue / dispatch。
-4. 群聊无 mention 的用户消息只在当前 `chatID` 的 room context 记录 `PrimaryGatewayID == current gateway`，且 daemon 短 TTL 权限缓存确认该 gateway 具备 `im:message.group_msg` 或 `im:message.group_msg:readonly` 时放行；否则在 record / parse / image-file download / queue 前忽略。
-5. 群聊无 mention 且 sender 是 bot 的消息默认忽略，避免 bot 之间互相触发。
-6. 当前 bot `open_id` 在 gateway 启动时通过 bot info API 获取并缓存；主机器人权限热路径只读 daemon 缓存，不逐条调用飞书 API。
+2. 群消息带非空 `thread_id` 时，identity 使用 `feishu:<gatewayID>:thread:<threadID>`；同一话题的 root/reply 事件必须回到同一 surface。
+3. 群消息没有 `thread_id` 时，继续使用 `feishu:<gatewayID>:chat:<chatID>` 根群 surface。
+4. 群消息若 `mentions` 命中当前 gateway 缓存的 bot `open_id`，才允许 materialize / reuse 上述 chat/thread surface。
+5. 群消息若 `mentions` 存在但未命中当前 bot，fail closed 忽略，不记录 `messageID -> surfaceID`，不进入 queue / dispatch。
+6. 群聊无 mention 的用户消息只在当前 `chatID` 的 room context 记录 `PrimaryGatewayID == current gateway`，且 daemon 短 TTL 权限缓存确认该 gateway 具备 `im:message.group_msg` 或 `im:message.group_msg:readonly` 时放行；否则在 record / parse / image-file download / queue 前忽略。
+7. 群聊无 mention 且 sender 是 bot 的消息默认忽略，避免 bot 之间互相触发。
+8. 当前 bot `open_id` 在 gateway 启动时通过 bot info API 获取并缓存；主机器人权限热路径只读 daemon 缓存，不逐条调用飞书 API。
 
 Feishu 群聊 surface 之上现在还有一层 room context coordination record，并已参与 headless workspace claim 仲裁：
 
-1. 群聊 surface materialize/resume 时会按 `chatID` 维护 `FeishuRoomContexts[feishu:chat:<chatID>]`。
+1. 根群 surface 与话题 surface materialize/resume 时都会按事件携带的 `chatID` 维护 `FeishuRoomContexts[feishu:chat:<chatID>]`。
 2. record 当前保存 room id、`chatID`、参与过的 gateway id evidence、surface session id evidence、`WorkspaceKey`、workspace 绑定操作者/更新时间与 `WorkspaceResetGeneration`。
-3. 私聊 surface 不创建 room context。
+3. 私聊 surface 不创建 room context；同一群的多个 `thread` surface 进入同一个 room context。
 4. 同一 `chatID` 下不同 gateway 的群 surface 在 V1 会进入同一个 room context；这是当前本机实测策略，不是 Feishu 官方跨 app 稳定性承诺。
 5. `workspaceClaims` 的 owner 已从单 `SurfaceSessionID` 扩展为 `surface` / `room`：私聊或非 room surface 继续以 surface 为 owner；群聊 surface 以 `feishu:chat:<chatID>` room 为 owner。
-6. 同一 room 下的多个群 surface 可以共享同一个 workspace claim；不同 room 或私聊 surface 对同一 workspace 仍会被判定 busy。
+6. 同一 room 下的根群与话题 surface 可以共享同一个 workspace claim；不同 room 或私聊 surface 对同一 workspace 仍会被判定 busy。
 7. room binding 是没有自身 workspace route 的 same-room surface 的最后一级 current-workspace fallback；因此第二个 bot 首次打开 `/use` / target picker 时会默认选中 room workspace，而不是回到全局列表第一项；若第二个 bot 在群里被 @ 并收到普通文本，文本入口也会先消费该 room workspace，并通过 workspace continuation 接管或启动当前 bot 自己的 headless context。若该 workspace 只有同 room sibling 已 claim 的实例，continuation 会走 fresh headless，而不是抢 sibling instance；后续文本按新会话首条消息派发，不继承其它 bot 的 selected thread。
 8. room binding 的写入点收口在真正改变 workspace claim 的入口：workspace attach、attach instance、跨 workspace thread attach、fresh workspace prepare 成功建立 `PendingHeadless` 后立即同步 room binding；target picker 只负责选择，confirm 后复用这些底层入口。fresh pending 后续启动失败不会自动清空 room binding，因为群 workspace 选择已经成立，用户可以继续在该 workspace 上重试或由同 room 其它 bot 启动自己的 context。
 9. room 已绑定且目标 workspace 不同时，切换前先确认当前 surface 可以安全离开，再检查同 room 是否存在 active/pending request、pending headless、active review、dispatching/running queue 或 instance active turn；命中 blocker 时拒绝，不调用管理员 API，也不 reset sibling surface。
 10. destructive room workspace change 必须通过注入的 Feishu chat admin authorizer；缺 authorizer、缺 actor、配置/API/权限失败或 actor 不是群主/用户管理员都会 fail closed，提示不能切换群 workspace。
 11. 管理员切换成功会 reset 同 room 其它 surface 的 context-bound runtime：attachment、selected thread、workspace claim、queue、staged image/file、pending request/capture、exec/reasoning progress、review session、plan proposal、target picker；触发切换的当前 surface 后续按目标 workspace 正常 attach/launch。
-12. instance claim 与 thread claim 仍是 surface 级全局独占，同 room 不共享实例或会话。
+12. instance claim 与 Codex/Claude thread claim 仍是 surface 级全局独占；同 room 只共享 workspace，不共享 session。两个 Feishu 话题即使属于同一群，也会保存两条独立的 surface resume entry。
 13. room context 的 `ActiveLock` 是同 room workspace 执行互斥的 SSOT：dispatching 时写入 surface / instance / thread / turn / queue item evidence，turn started 后用真实 thread/turn 刷新；普通 queue、未 attached 群 surface 的 room-workspace 文本自动接管、AutoContinue 与 AutoWhip 在派发前若发现其它 same-room surface 仍有 dispatching/running item 或 instance active turn，会保留当前 queued/pending 状态并返回 `room_workspace_active` notice；AutoContinue / AutoWhip 这类 tick 驱动入口会对该 notice 做短冷却，避免同一 active holder 持续刷屏。
 14. stale `ActiveLock` 不单独造成永久 busy：若锁指向的 surface 不存在或已无可证明 active work，下一次 same-room dispatch 检查会清掉并继续；room workspace reset 也会清掉 room active lock。
 15. 合法四段式 Feishu 私聊和群聊 surface 的 effective capability settings 都读取 gateway/bot 级 `BotCapabilitySettings`。`/mode`、provider/profile、model/reasoning/access/plan 只允许私聊修改；每个命令从最新 gateway record 开始，只更新自己拥有的字段，再把结果投影到同 gateway 已 materialize 的 surface，且只有合法私聊配置事务可以在 record 缺失时首建。plan confirmation 与 Claude workspace snapshot 等运行生命周期转换只能字段级更新已有 record；record 缺失时保留当前 surface 的 route-derived 执行状态，不能从群聊或生命周期路径反向整记录初始化 SSOT。旧私聊 surface 和 surface resume entry 同样不能整记录回写。record 同时保存 Codex provider 与 Claude profile 的非活动选择，active backend contract 只暴露当前一侧；非法 identity、gateway 不匹配或非 Feishu surface 保持本地设置语义。群聊 dispatch、headless launch contract 与 catalog context 使用 bot record 作为能力默认；群聊菜单隐藏这些入口，手输或卡片回调尝试修改时返回 `bot_capability_private_required` 或同卡错误提示。群 surface 自身仍保存 workspace/session/queue/staged input/AutoWhip/AutoContinue 等 context runtime。
@@ -131,7 +135,16 @@ Feishu 群聊 surface 之上现在还有一层 room context coordination record�
 19. 同 room 的 surface resume 候选彼此不一致，或与 durable room workspace 不一致时，daemon 记录排序后的冲突诊断并在统一 ingress 入口阻断普通文本、`/list`、`/use` 与菜单回调，返回 `room_workspace_recovery_conflict`；不得按最新时间或当前 bot 静默任选 workspace。修复持久化状态并重启后退出该 fail-closed 状态。
 20. surface resume 在当前 surface 暂时无法生成 target 时，只能回退上一份与当前 effective workspace 一致的 target。管理员把 room workspace 从 A 切到 B 后，sibling surface 的 effective workspace 已由 room SSOT 变成 B；daemon 必须在同一持久化事务中丢弃 sibling 的旧 A target，再写入 room=B，避免一次合法切换在下次启动时制造伪恢复冲突。当前 surface 仍有明确 target 时不走这条 fallback，真实不一致仍由启动 conflict gate fail closed。
 
-### 2.3 飞书私聊 surface identity 当前依赖 preferred actor id
+### 2.3 飞书群话题 surface identity
+
+1. 飞书事件的 `thread_id` 是话题 identity，`chat_id` 只作为 parent room identity；二者不能互相替代。
+2. 一个话题 surface 只绑定一个当前 Codex/Claude session。已有 session 通过话题内 `/use` 接入；新 session 通过话题内 `/list` 选择工作区后，在下一条正文输入时创建。
+3. gateway 将话题中的文本、图片、文件与合并转发都排进该 `thread` surface lane；异步解析重建事件时必须保留 `thread_id`。
+4. bot 回复继续 reply 到话题中的源消息，因此留在原话题；卡片 callback 通过 `messageID -> surfaceID` 回到原 `thread` surface。
+5. `surface-resume-state.json` 直接以 topic surface id 为 key 保存 session binding；不同话题不会像 P2P identity 那样按 `chatID` canonical merge。
+6. 话题 persisted surface 与根群 surface 一样只 materialize latent context，不做无人触发的 background recovery；用户在话题中发送普通文本时才进入 group on-demand recovery。
+
+### 2.4 飞书私聊 surface identity 当前依赖 preferred actor id
 
 飞书 P2P surface 当前不是“任意 user id 字符串都可互换”，而是 gateway-aware 的：
 
@@ -248,6 +261,8 @@ surface 不是单一枚举，而是五层正交状态叠加。
       3. 会话候选始终基于当前选中的 workspace 重新生成：`/workspace list` 与 alias `/list` 会把 `新建会话` 放在第一项，并继续保留已有会话列表；`/use`、`/useall`、`show_workspace_threads` 与锁定当前工作区的恢复 picker 则继续追加 `新建会话` fallback，避免坏会话把用户卡死。
       4. session 默认值按 source 收口：`/workspace list` 与 alias `/list` 只要当前工作区允许 `new_thread` 就会默认选中新建会话；`/use` / `/useall` 仍只会在 surface 已经绑定到同一 thread 时保守预填该 thread，detached / unbound 即使只剩一个候选也不会自动代填。
       5. confirm 既有会话时，会复用现有 `/use` / cross-workspace attach 语义；必要时会先统一经过 `resolveWorkspaceContract(...)` 与对应的 workspace continuation owner，再落到 attach / restart-managed / fresh-start 的单一路径。
+      6. Feishu `thread` surface 是特例：话题内 `/list` 只显示工作区选择，内部固定选择 `new_thread`，confirm 文案为“绑定工作区”；已有 session 不在 `/list` 中混选，统一通过 `/use` 接入。
+      7. `/use` 选中已有 session 后，卡片在同一 owner card 内显示完整的已选会话详情：最近活动、模型（若已知）、目录与 session ID；confirm/cancel、分页、freshness 与 stale-selection 规则不变。
    4. `/workspace new dir`、`/workspace new git` 与 `/workspace new worktree` 是三张独立业务卡：
       1. `从目录新建` 主卡会显示路径字段、`选择目录` 按钮与 `接入并继续` 主按钮；`target_picker_open_path_picker` 会把主卡 inline replace 成目录模式 path picker，confirm/cancel 后再返回主卡。
       2. `从目录新建` 在主卡上回填出有效目录后即可继续；若命中已知 workspace，会直接复用该工作区，并进入新会话待命，而不是把用户打回“切换”路径。

@@ -343,14 +343,14 @@ func TestResolveReceiveTarget(t *testing.T) {
 }
 
 func TestSurfaceIDForInboundUsesUserScopeForP2P(t *testing.T) {
-	got := gatewaypkg.SurfaceIDForInbound("app-1", "oc_xxx", "p2p", "user-1")
+	got := gatewaypkg.SurfaceIDForInbound("app-1", "oc_xxx", "p2p", "", "user-1")
 	if got != "feishu:app-1:user:user-1" {
 		t.Fatalf("unexpected p2p surface id: %q", got)
 	}
 }
 
 func TestSurfaceIDForInboundUsesChatScopeForGroup(t *testing.T) {
-	got := gatewaypkg.SurfaceIDForInbound("app-1", "oc_xxx", "group", "user-1")
+	got := gatewaypkg.SurfaceIDForInbound("app-1", "oc_xxx", "group", "", "user-1")
 	if got != "feishu:app-1:chat:oc_xxx" {
 		t.Fatalf("unexpected group surface id: %q", got)
 	}
@@ -374,7 +374,6 @@ func TestParseSurfaceRefRequiresGatewayAwareFormat(t *testing.T) {
 	if newRef.GatewayID != "app-1" || newRef.ScopeKind != feishuidentity.ScopeKindChat || newRef.ScopeID != "oc_1" {
 		t.Fatalf("unexpected new surface ref: %#v", newRef)
 	}
-
 	if _, ok := feishuidentity.ParseSurfaceRef("feishu:user:user-1"); ok {
 		t.Fatal("did not expect legacy surface id to parse")
 	}

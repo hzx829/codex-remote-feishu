@@ -670,9 +670,17 @@ func surfaceID(gatewayID, chatID, fallbackUserID string) string {
 	}.SurfaceID()
 }
 
-func SurfaceIDForInbound(gatewayID, chatID, chatType, fallbackUserID string) string {
+func SurfaceIDForInbound(gatewayID, chatID, chatType, threadID, fallbackUserID string) string {
 	if strings.EqualFold(chatType, "p2p") && fallbackUserID != "" {
 		return surfaceID(gatewayID, "", fallbackUserID)
+	}
+	if threadID = strings.TrimSpace(threadID); threadID != "" {
+		return feishuidentity.SurfaceRef{
+			Platform:  feishuidentity.PlatformFeishu,
+			GatewayID: strings.TrimSpace(gatewayID),
+			ScopeKind: feishuidentity.ScopeKindThread,
+			ScopeID:   threadID,
+		}.SurfaceID()
 	}
 	return surfaceID(gatewayID, chatID, fallbackUserID)
 }

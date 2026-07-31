@@ -521,6 +521,10 @@ func (s *Service) buildTargetPickerView(surface *state.SurfaceConsoleRecord, rec
 	if targetPickerUsesSessionSelection(record.Source) {
 		sessionOptions = s.targetPickerSessionOptions(surface, selectedWorkspace, record.Source, record.AllowNewThread)
 	}
+	topicWorkspaceBinding := surfaceIsFeishuThread(surface) && record.Source == control.TargetPickerRequestSourceList
+	if topicWorkspaceBinding {
+		sessionOptions = targetPickerNewThreadOnlySessionOptions(sessionOptions)
+	}
 	selectedSession := strings.TrimSpace(record.SelectedSessionValue)
 	if targetPickerUsesSessionSelection(record.Source) {
 		switch {
@@ -562,6 +566,7 @@ func (s *Service) buildTargetPickerView(surface *state.SurfaceConsoleRecord, rec
 		selectedWorkspaceLabel, selectedWorkspaceMeta = targetPickerLockedWorkspaceSummary(workspaceEntries, selectedWorkspace)
 	}
 	selectedSessionLabel, selectedSessionMeta := targetPickerSelectedSessionSummary(sessionOptions, selectedSession)
+	selectedSessionDetails := targetPickerSelectedSessionDetails(sessionOptions, selectedSession)
 	localDirectoryPath := strings.TrimSpace(record.LocalDirectoryPath)
 	localDirectoryName := strings.TrimSpace(record.LocalDirectoryName)
 	localDirectoryFinalPath := ""
@@ -601,7 +606,10 @@ func (s *Service) buildTargetPickerView(surface *state.SurfaceConsoleRecord, rec
 	switch page {
 	case control.FeishuTargetPickerPageTarget:
 		canConfirm = selectedWorkspace != "" && selectedSession != ""
-		if selectedSession == targetPickerNewThreadValue {
+		if topicWorkspaceBinding {
+			confirmLabel = "绑定工作区"
+			hint = "当前飞书话题会绑定到这个工作区，并在下一条消息时创建一个 Codex 会话；要接入已有会话请使用 /use。"
+		} else if selectedSession == targetPickerNewThreadValue {
 			confirmLabel = "新建会话"
 		} else {
 			confirmLabel = "切换"
@@ -648,7 +656,7 @@ func (s *Service) buildTargetPickerView(surface *state.SurfaceConsoleRecord, rec
 	}
 	record.GitFinalPath = gitFinalPath
 	showWorkspaceSelect := page == control.FeishuTargetPickerPageTarget && !workspaceSelectionLocked
-	showSessionSelect := page == control.FeishuTargetPickerPageTarget
+	showSessionSelect := page == control.FeishuTargetPickerPageTarget && !topicWorkspaceBinding
 	canCancelProcessing := stage == control.FeishuTargetPickerStageProcessing &&
 		(record.PendingKind == targetPickerPendingGitImport || record.PendingKind == targetPickerPendingWorktreeCreate)
 	processingCancelLabel := ""
@@ -673,17 +681,27 @@ func (s *Service) buildTargetPickerView(surface *state.SurfaceConsoleRecord, rec
 		strings.TrimSpace(record.WorktreeFinalPath),
 	)
 	noticeSections := targetPickerStatusNoticeSections(record)
+	title := targetPickerTitle(record.Source)
+	stageLabel := targetPickerViewStageLabel(record, page)
+	question := targetPickerViewQuestion(record, page)
+	if topicWorkspaceBinding {
+		title = "绑定话题工作区"
+		if stage == control.FeishuTargetPickerStageEditing {
+			stageLabel = "话题"
+			question = "把当前飞书话题绑定到哪个工作区？"
+		}
+	}
 	return control.NormalizeFeishuTargetPickerView(control.FeishuTargetPickerView{
 		PickerID:                 record.PickerID,
-		Title:                    targetPickerTitle(record.Source),
+		Title:                    title,
 		Source:                   record.Source,
 		CatalogFamilyID:          strings.TrimSpace(record.CatalogFamilyID),
 		CatalogVariantID:         strings.TrimSpace(record.CatalogVariantID),
 		CatalogBackend:           agentproto.NormalizeBackend(record.CatalogBackend),
 		Stage:                    stage,
 		Page:                     page,
-		StageLabel:               targetPickerViewStageLabel(record, page),
-		Question:                 targetPickerViewQuestion(record, page),
+		StageLabel:               stageLabel,
+		Question:                 question,
 		BodySections:             bodySections,
 		NoticeSections:           noticeSections,
 		StatusTitle:              strings.TrimSpace(record.StatusTitle),
@@ -697,6 +715,7 @@ func (s *Service) buildTargetPickerView(surface *state.SurfaceConsoleRecord, rec
 		BackValue:                backValue,
 		ShowWorkspaceSelect:      showWorkspaceSelect,
 		ShowSessionSelect:        showSessionSelect,
+		HideSessionSelect:        topicWorkspaceBinding,
 		WorkspaceSelectionLocked: workspaceSelectionLocked,
 		LockedWorkspaceKey:       lockedWorkspaceKey,
 		AllowNewThread:           record.AllowNewThread,
@@ -710,6 +729,7 @@ func (s *Service) buildTargetPickerView(surface *state.SurfaceConsoleRecord, rec
 		SelectedWorkspaceMeta:    selectedWorkspaceMeta,
 		SelectedSessionLabel:     selectedSessionLabel,
 		SelectedSessionMeta:      selectedSessionMeta,
+		SelectedSessionDetails:   selectedSessionDetails,
 		ConfirmLabel:             confirmLabel,
 		ConfirmValidatesOnSubmit: confirmValidatesOnSubmit,
 		CanConfirm:               canConfirm,
@@ -862,23 +882,27 @@ func (s *Service) targetPickerSessionOptions(surface *state.SurfaceConsoleRecord
 		if target.Mode == threadAttachUnavailable {
 			if !s.mergedThreadViewHasCompatibleVisibleInstance(surface, view) {
 				entry := s.threadSelectionViewEntry(surface, view, true)
-				meta := targetPickerSessionMetaText(source, s.threadSelectionMetaText(surface, view, entry.Status))
+				detailMeta := s.threadSelectionMetaText(surface, view, entry.Status)
+				meta := targetPickerSessionMetaText(source, detailMeta)
 				options = append(options, control.FeishuTargetPickerSessionOption{
-					Value:    targetPickerThreadValue(view.ThreadID),
-					Kind:     control.FeishuTargetPickerSessionThread,
-					Label:    entry.Summary,
-					MetaText: meta,
+					Value:       targetPickerThreadValue(view.ThreadID),
+					Kind:        control.FeishuTargetPickerSessionThread,
+					Label:       entry.Summary,
+					MetaText:    meta,
+					DetailLines: targetPickerThreadDetailLines(view, detailMeta),
 				})
 			}
 			continue
 		}
 		entry := s.threadSelectionViewEntry(surface, view, true)
-		meta := targetPickerSessionMetaText(source, s.threadSelectionMetaText(surface, view, entry.Status))
+		detailMeta := s.threadSelectionMetaText(surface, view, entry.Status)
+		meta := targetPickerSessionMetaText(source, detailMeta)
 		options = append(options, control.FeishuTargetPickerSessionOption{
-			Value:    targetPickerThreadValue(view.ThreadID),
-			Kind:     control.FeishuTargetPickerSessionThread,
-			Label:    entry.Summary,
-			MetaText: meta,
+			Value:       targetPickerThreadValue(view.ThreadID),
+			Kind:        control.FeishuTargetPickerSessionThread,
+			Label:       entry.Summary,
+			MetaText:    meta,
+			DetailLines: targetPickerThreadDetailLines(view, detailMeta),
 		})
 	}
 	if targetPickerAllowsNewThread(source, allowNewThread) && source != control.TargetPickerRequestSourceList {

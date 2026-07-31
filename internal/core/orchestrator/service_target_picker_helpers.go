@@ -151,6 +151,50 @@ func targetPickerSelectedSessionSummary(options []control.FeishuTargetPickerSess
 	return "", ""
 }
 
+func targetPickerSelectedSessionDetails(options []control.FeishuTargetPickerSessionOption, value string) []string {
+	for _, option := range options {
+		if option.Value == value {
+			return append([]string(nil), option.DetailLines...)
+		}
+	}
+	return nil
+}
+
+func targetPickerNewThreadOnlySessionOptions(options []control.FeishuTargetPickerSessionOption) []control.FeishuTargetPickerSessionOption {
+	for _, option := range options {
+		if option.Kind == control.FeishuTargetPickerSessionNewThread && option.Value == targetPickerNewThreadValue {
+			return []control.FeishuTargetPickerSessionOption{option}
+		}
+	}
+	return nil
+}
+
+func targetPickerThreadDetailLines(view *mergedThreadView, meta string) []string {
+	if view == nil {
+		return nil
+	}
+	lines := make([]string, 0, 4)
+	if meta = strings.TrimSpace(meta); meta != "" {
+		lines = append(lines, "最近活动："+meta)
+	}
+	if view.Thread != nil {
+		model := strings.TrimSpace(view.Thread.ExplicitModel)
+		effort := strings.TrimSpace(view.Thread.ExplicitReasoningEffort)
+		if model != "" && effort != "" {
+			lines = append(lines, "模型："+model+" · "+effort)
+		} else if model != "" {
+			lines = append(lines, "模型："+model)
+		}
+	}
+	if cwd := strings.TrimSpace(threadCWD(view)); cwd != "" {
+		lines = append(lines, "目录："+cwd)
+	}
+	if threadID := strings.TrimSpace(view.ThreadID); threadID != "" {
+		lines = append(lines, "会话 ID："+threadID)
+	}
+	return lines
+}
+
 func targetPickerThreadValue(threadID string) string {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {

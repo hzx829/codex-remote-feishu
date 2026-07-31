@@ -94,7 +94,7 @@ func (g *LiveGateway) surfaceForCardAction(messageID, chatID, operatorID string)
 	if surfaceID := g.lookupSurfaceMessage(messageID); surfaceID != "" {
 		return surfaceID
 	}
-	return gatewaypkg.SurfaceIDForInbound(g.config.GatewayID, chatID, "", operatorID)
+	return gatewaypkg.SurfaceIDForInbound(g.config.GatewayID, chatID, "", "", operatorID)
 }
 
 func (g *LiveGateway) deliverAsyncInboundFailure(ctx context.Context, surfaceID, chatID, actorUserID, replyToMessageID, body string) {

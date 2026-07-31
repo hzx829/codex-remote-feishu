@@ -45,6 +45,7 @@ type QueuedMessageWork struct {
 	content         string
 	parentMessageID string
 	rootMessageID   string
+	threadID        string
 	inbound         *control.ActionInboundMeta
 	text            string
 	imageKey        string
@@ -357,6 +358,9 @@ func (w *QueuedMessageWork) eventMessage() *larkim.EventMessage {
 	if w.rootMessageID != "" {
 		message.RootId = stringValueRef(w.rootMessageID)
 	}
+	if w.threadID != "" {
+		message.ThreadId = stringValueRef(w.threadID)
+	}
 	if w.chatID != "" {
 		message.ChatId = stringValueRef(w.chatID)
 	}
@@ -450,9 +454,10 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 	message := event.Event.Message
 	chatID := stringPtr(message.ChatId)
 	chatType := stringPtr(message.ChatType)
+	threadID := stringPtr(message.ThreadId)
 	senderUserID := userIDFromMessage(event.Event.Sender)
 	gatewayID := strings.TrimSpace(env.GatewayID)
-	surfaceSessionID := SurfaceIDForInbound(gatewayID, chatID, chatType, senderUserID)
+	surfaceSessionID := SurfaceIDForInbound(gatewayID, chatID, chatType, threadID, senderUserID)
 	inbound := InboundMetaFromMessageEvent(event)
 	if reason := groupMessageMentionGateReason(env, message, senderTypeFromMessageSender(event.Event.Sender)); reason != "" {
 		logInboundMessageIgnored(gatewayID, surfaceSessionID, inbound, message, reason)
@@ -504,6 +509,7 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 				content:         content,
 				parentMessageID: strings.TrimSpace(stringPtr(message.ParentId)),
 				rootMessageID:   strings.TrimSpace(stringPtr(message.RootId)),
+				threadID:        strings.TrimSpace(threadID),
 				inbound:         cloneInboundMeta(inbound),
 				text:            text,
 			},
@@ -526,6 +532,7 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 				content:         content,
 				parentMessageID: strings.TrimSpace(stringPtr(message.ParentId)),
 				rootMessageID:   strings.TrimSpace(stringPtr(message.RootId)),
+				threadID:        strings.TrimSpace(threadID),
 				inbound:         cloneInboundMeta(inbound),
 			},
 		}, true, nil
@@ -547,6 +554,7 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 				content:         content,
 				parentMessageID: strings.TrimSpace(stringPtr(message.ParentId)),
 				rootMessageID:   strings.TrimSpace(stringPtr(message.RootId)),
+				threadID:        strings.TrimSpace(threadID),
 				inbound:         cloneInboundMeta(inbound),
 				imageKey:        imageKey,
 			},
@@ -569,6 +577,7 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 				content:         content,
 				parentMessageID: strings.TrimSpace(stringPtr(message.ParentId)),
 				rootMessageID:   strings.TrimSpace(stringPtr(message.RootId)),
+				threadID:        strings.TrimSpace(threadID),
 				inbound:         cloneInboundMeta(inbound),
 				fileKey:         fileKey,
 				fileName:        fileName,
@@ -587,6 +596,7 @@ func PlanInboundMessageEvent(env InboundEnv, event *larkim.P2MessageReceiveV1) (
 				content:         content,
 				parentMessageID: strings.TrimSpace(stringPtr(message.ParentId)),
 				rootMessageID:   strings.TrimSpace(stringPtr(message.RootId)),
+				threadID:        strings.TrimSpace(threadID),
 				inbound:         cloneInboundMeta(inbound),
 			},
 		}, true, nil

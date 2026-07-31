@@ -220,6 +220,50 @@ func TestTargetPickerElementsRenderLockedWorkspaceAsReadOnlyContext(t *testing.T
 	}
 }
 
+func TestTargetPickerElementsRenderSelectedSessionDetails(t *testing.T) {
+	elements := projectorpkg.TargetPickerElements(control.FeishuTargetPickerView{
+		PickerID:                 "picker-1",
+		ShowWorkspaceSelect:      true,
+		ShowSessionSelect:        true,
+		SelectedWorkspaceKey:     "/data/dl/web",
+		SelectedSessionValue:     "thread:thread-2",
+		SelectedSessionLabel:     "整理样式",
+		SelectedSessionDetails:   []string{"最近活动：1分钟前", "模型：gpt-5.4 · high", "会话 ID：thread-2"},
+		WorkspaceOptions:         []control.FeishuTargetPickerWorkspaceOption{{Value: "/data/dl/web", Label: "web"}},
+		SessionOptions:           []control.FeishuTargetPickerSessionOption{{Value: "thread:thread-2", Kind: control.FeishuTargetPickerSessionThread, Label: "整理样式"}},
+		WorkspaceSelectionLocked: false,
+	}, "life-details")
+
+	rendered := fmt.Sprintf("%#v", elements)
+	for _, want := range []string{"已选会话详情", "模型：gpt-5.4 · high", "会话 ID：thread-2"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("selected session details missing %q: %#v", want, elements)
+		}
+	}
+}
+
+func TestTargetPickerElementsCanHideSessionDropdown(t *testing.T) {
+	elements := projectorpkg.TargetPickerElements(control.FeishuTargetPickerView{
+		PickerID:             "picker-1",
+		ShowWorkspaceSelect:  true,
+		HideSessionSelect:    true,
+		SelectedWorkspaceKey: "/data/dl/web",
+		SelectedSessionValue: "new_thread",
+		WorkspaceOptions:     []control.FeishuTargetPickerWorkspaceOption{{Value: "/data/dl/web", Label: "web"}},
+		SessionOptions:       []control.FeishuTargetPickerSessionOption{{Value: "new_thread", Kind: control.FeishuTargetPickerSessionNewThread, Label: "新建会话"}},
+	}, "life-topic")
+
+	selectCount := 0
+	for _, element := range elements {
+		if cardStringValue(element["tag"]) == "select_static" {
+			selectCount++
+		}
+	}
+	if selectCount != 1 {
+		t.Fatalf("expected only workspace select when session dropdown is hidden, got %#v", elements)
+	}
+}
+
 func TestTargetPickerElementsPaginateLargeDualSelectAndKeepFooter(t *testing.T) {
 	workspaceOptions := make([]control.FeishuTargetPickerWorkspaceOption, 0, 120)
 	for i := 0; i < 120; i++ {

@@ -9,9 +9,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
 
-const (
-	inboundMessageParseTimeout = 30 * time.Second
-)
+const inboundMessageParseTimeout = 30 * time.Second
 
 type feishuTextContent struct {
 	Text string `json:"text"`

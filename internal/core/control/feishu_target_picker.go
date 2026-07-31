@@ -91,6 +91,7 @@ type FeishuTargetPickerView struct {
 	BackValue                map[string]any
 	ShowWorkspaceSelect      bool
 	ShowSessionSelect        bool
+	HideSessionSelect        bool
 	WorkspaceSelectionLocked bool
 	LockedWorkspaceKey       string
 	AllowNewThread           bool
@@ -104,6 +105,7 @@ type FeishuTargetPickerView struct {
 	SelectedWorkspaceMeta    string
 	SelectedSessionLabel     string
 	SelectedSessionMeta      string
+	SelectedSessionDetails   []string
 	ConfirmLabel             string
 	// ConfirmValidatesOnSubmit keeps the confirm button clickable when the
 	// current page depends on Feishu form inputs that cannot be live-validated.
@@ -136,10 +138,11 @@ type FeishuTargetPickerWorkspaceOption struct {
 }
 
 type FeishuTargetPickerSessionOption struct {
-	Value    string
-	Kind     FeishuTargetPickerSessionKind
-	Label    string
-	MetaText string
+	Value       string
+	Kind        FeishuTargetPickerSessionKind
+	Label       string
+	MetaText    string
+	DetailLines []string
 }
 
 type FeishuTargetPickerMessage struct {
@@ -157,6 +160,7 @@ func NormalizeFeishuTargetPickerView(view FeishuTargetPickerView) FeishuTargetPi
 	view.ActionPolicy = frame.ActionPolicy
 	view.Sealed = frontstagecontract.SealedForPhase(frame.Phase)
 	view.BackValue = cloneActionPayload(view.BackValue)
+	view.SelectedSessionDetails = append([]string(nil), view.SelectedSessionDetails...)
 	return view
 }
 

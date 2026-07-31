@@ -135,5 +135,5 @@ func SurfaceUsesBotCapabilitySettings(surface *SurfaceConsoleRecord) bool {
 		return false
 	}
 	ref, ok := feishuidentity.ParseSurfaceRef(surface.SurfaceSessionID)
-	return ok && ref.GatewayID == strings.TrimSpace(surface.GatewayID) && (ref.IsUser() || ref.IsChat())
+	return ok && ref.GatewayID == strings.TrimSpace(surface.GatewayID) && (ref.IsUser() || ref.IsChat() || ref.IsThread())
 }

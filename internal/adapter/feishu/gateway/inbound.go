@@ -214,7 +214,7 @@ func ParseMenuEvent(gatewayID string, event *larkapplication.P2BotMenuV6) (contr
 	log.Printf("feishu bot menu handled: raw_key=%q normalized=%q action=%s", rawKey, NormalizeMenuEventKey(rawKey), action.Kind)
 	operatorID := operatorUserID(event.Event.Operator)
 	action.GatewayID = strings.TrimSpace(gatewayID)
-	action.SurfaceSessionID = SurfaceIDForInbound(gatewayID, "", "p2p", operatorID)
+	action.SurfaceSessionID = SurfaceIDForInbound(gatewayID, "", "p2p", "", operatorID)
 	action.ActorUserID = operatorID
 	action.Inbound = InboundMetaFromMenuEvent(event)
 	return action, true

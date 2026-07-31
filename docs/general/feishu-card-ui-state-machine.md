@@ -4,6 +4,8 @@
 > Updated: `2026-07-31`
 > Summary: 当前 live 的 Feishu 卡片 UI 已把 workspace/page/request/review 等 owner-flow 收口到稳定的 page / picker / request substrate；immediate `select_static` callback 的取值规则统一落在 `internal/adapter/feishu/selectflow`，按 `payload value -> form_value[field_name] -> option/options` 恢复，避免群聊回调把旧 option 误当成新选择；`/workspace list` 与 alias `/list` 在工作区已确定后也会把 `新建会话` 作为合法 session 选项，并默认选中它；bare `/model` 的下拉候选现在只来自当前 Codex instance 的动态 `model/list` 缓存，无缓存/旧 app-server/刷新失败时只保留手动输入；Codex/VS Code 下 bare `/reasoning` 现在以当前模型的动态 `supportedReasoningEfforts` 投影快捷项，目录不可校验时只保留自动并给出说明，不再展示全局硬编码推理档位；Feishu 群聊菜单会隐藏 bot 能力设置项，手输或卡片回调尝试修改 `/mode`、provider/profile、model/reasoning/access/plan 时同卡或 notice 提示到私聊修改；`/primary on/off/status/refresh` 已接入统一 command family，群聊工具菜单按当前 room primary 状态投影设置/取消/切换/查看/刷新按钮，单聊菜单隐藏但文本命令返回群聊限定提示；显式表单提交家族仍保持各自既有 submit 语义；`mcpServer/elicitation/request` 承载 MCP tool approval 时会归一成 `mcp_server_elicitation_approval`，飞书卡只开放本次/本会话授权，`persist=always` 仅提示暂不支持跨会话持久允许；`/mcpoauth <server>` 当前只发起 MCP OAuth RPC lifecycle，并用 append-only notice 展示授权链接与完成/失败结果，不进入 request card 或菜单 owner-flow。
 
+> 2026-07-31 补充：Feishu 话题内 `/list` 的 target picker 现在只显示 workspace lane，并在 read model 中固定 `new_thread`；`/use` 仍显示 session lane，选中已有 session 后会在同卡展示最近活动、模型、目录与 session ID。
+
 ## 1. 文档定位
 
 这份文档描述的是 **当前代码已经实现** 的 Feishu 卡片 UI / callback 层行为。
@@ -161,6 +163,9 @@
   - projector 直接以它为 owner 生成 `target_picker_*` callback payload
   - dropdown 刷新与 confirm 已不再经由 `FeishuDirectSelectionPrompt` 兜底
   - `Page` / `StageLabel` / `Question` 当前仍是 editing / processing / terminal 的稳定页头合同，但 headless 主路径已经改成：`/workspace list` 直接落 `Page=target`，`/workspace new dir` 直接落 `Page=local_directory`，`/workspace new git` 直接落 `Page=git`，`/workspace new worktree` 直接落 `Page=worktree`
+  - Feishu `thread` surface 内 bare `/list` 会设置 `HideSessionSelect=true`，UI 只渲染 workspace lane；read model 仍保留唯一的 `new_thread` 值供原有 confirm reducer 消费，因此没有新增 callback kind 或隐藏的第二次提交
+  - 话题 `/list` editing 态使用“绑定话题工作区 / 话题”页头；进入 processing/succeeded/failed/cancelled 后恢复通用阶段页头，避免 terminal card 看起来仍可编辑
+  - `/use` 等已有 session 选择路径会通过 `SelectedSessionDetails` 在 session lane 前渲染“已选会话详情”；详情只是展示字段，不进入 callback payload，session identity 仍只取原 `target_picker_session` value
   - 旧 `FeishuTargetPickerPageMode` / `FeishuTargetPickerPageSource` 与对应 callback 协议已经删除，不再作为 DTO 兼容字段保留
 - `control.FeishuSelectionView` 当前已经是 live selection UI 的主载体：
   - VS Code `/list` 的 instance selection、VS Code `/use` / `/useall` 的 thread selection，以及 kick-thread confirm，当前都直接跨 `UIEvent` 边界携带 `FeishuSelectionView`

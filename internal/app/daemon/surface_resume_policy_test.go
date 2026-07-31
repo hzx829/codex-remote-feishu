@@ -79,6 +79,38 @@ func TestFeishuUserSurfaceResumeStateStillEntersBackgroundRecovery(t *testing.T)
 	}
 }
 
+func TestFeishuTopicSurfaceResumeStateMaterializesButSkipsBackgroundRecovery(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	workspaceDir := t.TempDir()
+	putSurfaceResumeStateForTest(t, stateDir, surfaceresume.Entry{
+		SurfaceSessionID:   "feishu:app-1:thread:omt_topic_1",
+		GatewayID:          "app-1",
+		ChatID:             "oc_room",
+		ActorUserID:        "ou_user",
+		ProductMode:        "normal",
+		Backend:            "codex",
+		ResumeThreadID:     "thread-1",
+		ResumeThreadCWD:    workspaceDir,
+		ResumeWorkspaceKey: workspaceDir,
+		ResumeRouteMode:    "pinned",
+		ResumeHeadless:     true,
+	})
+	app := newRestoreHintTestApp(stateDir)
+	app.startHeadless = func(relayruntime.HeadlessLaunchOptions) (int, error) {
+		t.Fatal("topic background recovery must not start headless")
+		return 0, nil
+	}
+
+	if snapshot := app.service.SurfaceSnapshot("feishu:app-1:thread:omt_topic_1"); snapshot == nil {
+		t.Fatal("expected topic surface to materialize from resume state")
+	}
+	if _, ok := app.surfaceResumeRuntime.recovery["feishu:app-1:thread:omt_topic_1"]; ok {
+		t.Fatalf("expected topic surface to stay out of background recovery map, got %#v", app.surfaceResumeRuntime.recovery)
+	}
+}
+
 func TestFeishuGroupVSCodeResumeDoesNotEmitDetachedPromptOnStartup(t *testing.T) {
 	t.Parallel()
 

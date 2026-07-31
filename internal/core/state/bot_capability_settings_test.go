@@ -96,6 +96,29 @@ func TestEffectiveSurfaceCapabilitySettingsUsesBotRecordForFeishuRoom(t *testing
 	}
 }
 
+func TestEffectiveSurfaceCapabilitySettingsUsesBotRecordForFeishuTopic(t *testing.T) {
+	root := NewRoot()
+	root.BotCapabilitySettings["feishu:gateway:app-1"] = BotCapabilitySettingsRecord{
+		GatewayID:       "app-1",
+		ProductMode:     ProductModeNormal,
+		Backend:         agentproto.BackendClaude,
+		ClaudeProfileID: "devseek",
+	}
+	surface := &SurfaceConsoleRecord{
+		SurfaceSessionID: "feishu:app-1:thread:omt_topic_1",
+		Platform:         "feishu",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ProductMode:      ProductModeNormal,
+		Backend:          agentproto.BackendCodex,
+	}
+
+	effective := EffectiveSurfaceCapabilitySettings(root, surface)
+	if effective.Contract.Backend != agentproto.BackendClaude || effective.Contract.ClaudeProfileID != "devseek" {
+		t.Fatalf("effective topic contract = %#v, want bot claude profile", effective.Contract)
+	}
+}
+
 func TestEffectiveSurfaceCapabilitySettingsUsesBotRecordForFeishuPrivate(t *testing.T) {
 	root := NewRoot()
 	root.BotCapabilitySettings["feishu:gateway:app-1"] = BotCapabilitySettingsRecord{

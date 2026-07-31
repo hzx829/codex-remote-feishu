@@ -36,5 +36,5 @@ func surfaceIDFromSurface(surface *state.SurfaceConsoleRecord) string {
 
 func surfaceIsFeishuGroup(surfaceID string) bool {
 	ref, ok := feishuidentity.ParseSurfaceRef(surfaceID)
-	return ok && ref.IsChat()
+	return ok && (ref.IsChat() || ref.IsThread())
 }

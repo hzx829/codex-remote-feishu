@@ -49,6 +49,26 @@ func TestEnsureSurfaceDoesNotCreateFeishuRoomContextForP2P(t *testing.T) {
 	}
 }
 
+func TestEnsureSurfaceMapsTopicsInSameChatToSharedFeishuRoomContext(t *testing.T) {
+	svc := NewService(nil, Config{}, nil)
+
+	svc.ensureSurface(control.Action{SurfaceSessionID: "feishu:app-1:thread:omt_1", GatewayID: "app-1", ChatID: "oc_1"})
+	svc.ensureSurface(control.Action{SurfaceSessionID: "feishu:app-1:thread:omt_2", GatewayID: "app-1", ChatID: "oc_1"})
+
+	if len(svc.root.FeishuRoomContexts) != 1 {
+		t.Fatalf("room context count = %d, want 1", len(svc.root.FeishuRoomContexts))
+	}
+	room := svc.root.FeishuRoomContexts["feishu:chat:oc_1"]
+	if room == nil {
+		t.Fatal("expected topics to share their parent chat room context")
+	}
+	for _, surfaceID := range []string{"feishu:app-1:thread:omt_1", "feishu:app-1:thread:omt_2"} {
+		if !room.SurfaceSessionIDs[surfaceID] {
+			t.Fatalf("expected topic surface evidence %s", surfaceID)
+		}
+	}
+}
+
 func TestEnsureSurfaceMapsSameChatAcrossGatewaysToSameFeishuRoomContext(t *testing.T) {
 	svc := NewService(nil, Config{}, nil)
 

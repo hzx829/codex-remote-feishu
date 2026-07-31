@@ -3,9 +3,10 @@ package feishuidentity
 import "strings"
 
 const (
-	PlatformFeishu = "feishu"
-	ScopeKindUser  = "user"
-	ScopeKindChat  = "chat"
+	PlatformFeishu  = "feishu"
+	ScopeKindUser   = "user"
+	ScopeKindChat   = "chat"
+	ScopeKindThread = "thread"
 )
 
 type SurfaceRef struct {
@@ -51,6 +52,10 @@ func (r SurfaceRef) IsChat() bool {
 	return r.valid() && strings.TrimSpace(r.ScopeKind) == ScopeKindChat
 }
 
+func (r SurfaceRef) IsThread() bool {
+	return r.valid() && strings.TrimSpace(r.ScopeKind) == ScopeKindThread
+}
+
 func (r SurfaceRef) valid() bool {
 	if strings.TrimSpace(r.Platform) != PlatformFeishu {
 		return false
@@ -59,7 +64,7 @@ func (r SurfaceRef) valid() bool {
 		return false
 	}
 	switch strings.TrimSpace(r.ScopeKind) {
-	case ScopeKindUser, ScopeKindChat:
+	case ScopeKindUser, ScopeKindChat, ScopeKindThread:
 		return true
 	default:
 		return false

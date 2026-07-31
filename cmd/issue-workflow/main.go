@@ -183,7 +183,6 @@ func runFinish(ctx context.Context, svc *issueworkflow.Service, args []string) (
 	commentFile := fs.String("comment-file", "", "post this file as an issue comment before cleanup")
 	closeIssue := fs.Bool("close", false, "close the issue after posting the comment")
 	releaseProcessing := fs.Bool("release-processing", true, "remove the processing label before finishing")
-	skipChecks := fs.Bool("skip-checks", false, "skip local mechanical checks and only do GitHub cleanup")
 	modeValue := fs.String("mode", "full", "workflow mode: full or fast")
 	format := fs.String("format", "text", "output format: text or json")
 	if err := fs.Parse(args); err != nil {
@@ -210,7 +209,6 @@ func runFinish(ctx context.Context, svc *issueworkflow.Service, args []string) (
 		CommentFile:       commentPath,
 		CloseIssue:        *closeIssue,
 		ReleaseProcessing: *releaseProcessing,
-		SkipChecks:        *skipChecks,
 		WorkflowMode:      mode,
 	})
 	if err != nil {
@@ -383,9 +381,6 @@ func renderFinish(result issueworkflow.FinishResult) string {
 		fmt.Sprintf("repo: %s", result.Repo),
 		fmt.Sprintf("issue: #%d", result.IssueNumber),
 	}
-	if len(result.ChangedFiles) > 0 {
-		lines = append(lines, "changed files: "+strings.Join(result.ChangedFiles, ", "))
-	}
 	if len(result.Checks) > 0 {
 		lines = append(lines, "checks:")
 		for _, check := range result.Checks {
@@ -453,5 +448,5 @@ func finishHasFailures(checks []issueworkflow.CheckResult) bool {
 
 func usageError(format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
-	return fmt.Errorf("%s\nusage:\n  go run ./cmd/issue-workflow prepare --issue 123 [--repo owner/name] [--mode full|fast] [--format text|json]\n  go run ./cmd/issue-workflow lint --issue 123 [--repo owner/name] [--mode full|fast] [--format text|json]\n  go run ./cmd/issue-workflow close-plan --issue 123 [--repo owner/name] [--mode full|fast] [--format text|json]\n  go run ./cmd/issue-workflow finish --issue 123 [--comment-file path] [--close] [--skip-checks] [--mode full|fast]", msg)
+	return fmt.Errorf("%s\nusage:\n  go run ./cmd/issue-workflow prepare --issue 123 [--repo owner/name] [--mode full|fast] [--format text|json]\n  go run ./cmd/issue-workflow lint --issue 123 [--repo owner/name] [--mode full|fast] [--format text|json]\n  go run ./cmd/issue-workflow close-plan --issue 123 [--repo owner/name] [--mode full|fast] [--format text|json]\n  go run ./cmd/issue-workflow finish --issue 123 [--comment-file path] [--close] [--mode full|fast]", msg)
 }

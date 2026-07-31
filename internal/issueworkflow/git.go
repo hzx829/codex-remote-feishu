@@ -16,10 +16,6 @@ type GitClient interface {
 	CurrentBranch(context.Context) (string, error)
 	HeadCommit(context.Context) (string, error)
 	OriginRemoteURL(context.Context) (string, error)
-	ChangedFilesFromHEAD(context.Context) ([]string, error)
-	ChangedDocsNameStatus(context.Context) ([]string, error)
-	DiffCheck(context.Context, bool) (string, error)
-	GofmtList(context.Context, []string) ([]string, error)
 }
 
 type gitCLI struct {
@@ -73,49 +69,6 @@ func (g *gitCLI) OriginRemoteURL(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(output), nil
-}
-
-func (g *gitCLI) ChangedFilesFromHEAD(ctx context.Context) ([]string, error) {
-	output, err := g.run(ctx, "diff", "--name-only", "--diff-filter=ACMR", "HEAD")
-	if err != nil {
-		return nil, err
-	}
-	lines := splitNonEmptyLines(output)
-	files := make([]string, 0, len(lines))
-	for _, line := range lines {
-		files = append(files, filepath.Clean(line))
-	}
-	return files, nil
-}
-
-func (g *gitCLI) ChangedDocsNameStatus(ctx context.Context) ([]string, error) {
-	output, err := g.run(ctx, "diff", "--name-status", "--find-renames", "HEAD", "--", "docs")
-	if err != nil {
-		return nil, err
-	}
-	return splitNonEmptyLines(output), nil
-}
-
-func (g *gitCLI) DiffCheck(ctx context.Context, cached bool) (string, error) {
-	args := []string{"diff", "--check"}
-	if cached {
-		args = append(args, "--cached")
-	}
-	return g.run(ctx, args...)
-}
-
-func (g *gitCLI) GofmtList(ctx context.Context, files []string) ([]string, error) {
-	if len(files) == 0 {
-		return nil, nil
-	}
-	args := append([]string{"-l"}, files...)
-	cmd := execlaunch.CommandContext(ctx, "gofmt", args...)
-	cmd.Dir = g.rootDir
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	return splitNonEmptyLines(string(output)), nil
 }
 
 func (g *gitCLI) run(ctx context.Context, args ...string) (string, error) {

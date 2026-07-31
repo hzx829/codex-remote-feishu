@@ -11,17 +11,11 @@ import (
 )
 
 type fakeGitClient struct {
-	dirtyFiles        []string
-	pullErr           error
-	branch            string
-	head              string
-	originURL         string
-	changedFiles      []string
-	changedDocsStatus []string
-	diffCheckOutput   map[bool]string
-	diffCheckErr      map[bool]error
-	gofmtUnformatted  []string
-	gofmtErr          error
+	dirtyFiles []string
+	pullErr    error
+	branch     string
+	head       string
+	originURL  string
 }
 
 func (f *fakeGitClient) TrackedDirtyFiles(context.Context) ([]string, error) {
@@ -31,18 +25,6 @@ func (f *fakeGitClient) PullFFOnly(context.Context) error                { retur
 func (f *fakeGitClient) CurrentBranch(context.Context) (string, error)   { return f.branch, nil }
 func (f *fakeGitClient) HeadCommit(context.Context) (string, error)      { return f.head, nil }
 func (f *fakeGitClient) OriginRemoteURL(context.Context) (string, error) { return f.originURL, nil }
-func (f *fakeGitClient) ChangedFilesFromHEAD(context.Context) ([]string, error) {
-	return append([]string(nil), f.changedFiles...), nil
-}
-func (f *fakeGitClient) ChangedDocsNameStatus(context.Context) ([]string, error) {
-	return append([]string(nil), f.changedDocsStatus...), nil
-}
-func (f *fakeGitClient) DiffCheck(_ context.Context, cached bool) (string, error) {
-	return f.diffCheckOutput[cached], f.diffCheckErr[cached]
-}
-func (f *fakeGitClient) GofmtList(context.Context, []string) ([]string, error) {
-	return append([]string(nil), f.gofmtUnformatted...), f.gofmtErr
-}
 
 type fakeGitHubClient struct {
 	issue         Issue
@@ -306,6 +288,42 @@ func TestPrepareBlocksWorkflowContractForImplementableIssue(t *testing.T) {
 	}
 }
 
+func TestPrepareAllowsFastMinimumContractForImplementableIssue(t *testing.T) {
+	root := t.TempDir()
+	gh := &fakeGitHubClient{
+		issue: Issue{
+			Number: 22,
+			Title:  "修复清晰的单阶段问题",
+			Body: strings.Join([]string{
+				"## 背景",
+				"body",
+				"## 目标",
+				"goal",
+				"## 完成标准",
+				"done",
+			}, "\n"),
+			Labels: []string{"bug", "area:daemon", statusLabelImplementable},
+		},
+	}
+	svc := &Service{
+		RootDir: root,
+		Git: &fakeGitClient{
+			branch:    "master",
+			head:      "abc123",
+			originURL: "https://github.com/kxn/codex-remote-feishu.git",
+		},
+		GitHub: gh,
+		Now:    func() time.Time { return time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC) },
+	}
+	result, err := svc.Prepare(context.Background(), PrepareOptions{IssueNumber: 22, ClaimProcessing: true, WorkflowMode: WorkflowModeFast})
+	if err != nil {
+		t.Fatalf("Prepare error = %v", err)
+	}
+	if result.Status != PrepareStatusReady {
+		t.Fatalf("unexpected prepare result: %#v", result)
+	}
+}
+
 func TestBuildLintReportFlagsMissingSectionsAndStatusLabels(t *testing.T) {
 	report := BuildLintReport(Issue{
 		Body: strings.Join([]string{
@@ -350,15 +368,8 @@ func TestBuildLintReportRequiresExplicitStatusLabel(t *testing.T) {
 	}
 }
 
-func TestFinishRunsChecksAndReleasesProcessing(t *testing.T) {
+func TestFinishHandlesIssueCloseoutWithoutLocalDiffChecks(t *testing.T) {
 	root := t.TempDir()
-	docPath := filepath.Join(root, "docs", "general", "example.md")
-	if err := os.MkdirAll(filepath.Dir(docPath), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(docPath, []byte("# Example\n\n> Type: `general`\n> Updated: `2026-04-10`\n> Summary: `ok`\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile doc: %v", err)
-	}
 	commentFile := filepath.Join(root, "comment.md")
 	if err := os.WriteFile(commentFile, []byte("done"), 0o644); err != nil {
 		t.Fatalf("WriteFile comment: %v", err)
@@ -372,11 +383,7 @@ func TestFinishRunsChecksAndReleasesProcessing(t *testing.T) {
 	svc := &Service{
 		RootDir: root,
 		Git: &fakeGitClient{
-			originURL:         "https://github.com/kxn/codex-remote-feishu.git",
-			changedFiles:      []string{"docs/general/example.md"},
-			diffCheckOutput:   map[bool]string{false: "", true: ""},
-			diffCheckErr:      map[bool]error{},
-			changedDocsStatus: nil,
+			originURL: "https://github.com/kxn/codex-remote-feishu.git",
 		},
 		GitHub: gh,
 		Now:    time.Now,
@@ -414,9 +421,7 @@ func TestFinishReleasesProcessingWhenCommentFails(t *testing.T) {
 	svc := &Service{
 		RootDir: root,
 		Git: &fakeGitClient{
-			originURL:       "https://github.com/kxn/codex-remote-feishu.git",
-			diffCheckOutput: map[bool]string{false: "", true: ""},
-			diffCheckErr:    map[bool]error{},
+			originURL: "https://github.com/kxn/codex-remote-feishu.git",
 		},
 		GitHub: gh,
 		Now:    time.Now,
@@ -425,7 +430,6 @@ func TestFinishReleasesProcessingWhenCommentFails(t *testing.T) {
 		IssueNumber:       22,
 		CommentFile:       commentFile,
 		ReleaseProcessing: true,
-		SkipChecks:        true,
 	})
 	if err == nil || !strings.Contains(err.Error(), os.ErrPermission.Error()) {
 		t.Fatalf("Finish error = %v, want comment error", err)
@@ -438,7 +442,7 @@ func TestFinishReleasesProcessingWhenCommentFails(t *testing.T) {
 	}
 }
 
-func TestFinishReleasesProcessingWhenChecksFail(t *testing.T) {
+func TestFinishDoesNotRepeatLocalDiffChecks(t *testing.T) {
 	gh := &fakeGitHubClient{
 		issue: Issue{
 			Number: 22,
@@ -448,9 +452,7 @@ func TestFinishReleasesProcessingWhenChecksFail(t *testing.T) {
 	svc := &Service{
 		RootDir: t.TempDir(),
 		Git: &fakeGitClient{
-			originURL:       "https://github.com/kxn/codex-remote-feishu.git",
-			diffCheckOutput: map[bool]string{false: "dirty", true: ""},
-			diffCheckErr:    map[bool]error{false: os.ErrInvalid},
+			originURL: "https://github.com/kxn/codex-remote-feishu.git",
 		},
 		GitHub: gh,
 		Now:    time.Now,
@@ -462,8 +464,8 @@ func TestFinishReleasesProcessingWhenChecksFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Finish error = %v", err)
 	}
-	if !hasFailedCheck(result.Checks) {
-		t.Fatalf("expected failed checks, got %#v", result.Checks)
+	if hasFailedCheck(result.Checks) {
+		t.Fatalf("did not expect issue finish to run local diff checks, got %#v", result.Checks)
 	}
 	if !result.ProcessingReleased {
 		t.Fatalf("expected processing to be released on check failure, got %#v", result)
@@ -473,7 +475,7 @@ func TestFinishReleasesProcessingWhenChecksFail(t *testing.T) {
 	}
 }
 
-func TestBuildLintReportRequiresStagedPlanEvenInFastMode(t *testing.T) {
+func TestBuildLintReportFastModeSkipsFullPlanningContract(t *testing.T) {
 	issue := Issue{
 		Body: strings.Join([]string{
 			"## 背景",
@@ -496,8 +498,11 @@ func TestBuildLintReportRequiresStagedPlanEvenInFastMode(t *testing.T) {
 	if !hasFindingCode(fullReport.Findings, "missing-staged-plan-section") {
 		t.Fatalf("expected full mode to require staged-plan finding, got %#v", fullReport.Findings)
 	}
-	if !hasFindingCode(fastReport.Findings, "missing-staged-plan-section") {
-		t.Fatalf("expected fast mode to keep staged-plan finding, got %#v", fastReport.Findings)
+	if hasFindingCode(fastReport.Findings, "missing-staged-plan-section") {
+		t.Fatalf("fast mode should not require a staged plan, got %#v", fastReport.Findings)
+	}
+	if hasFindingCode(fastReport.Findings, "missing-execution-context-sections") {
+		t.Fatalf("fast mode should not require execution context sections, got %#v", fastReport.Findings)
 	}
 }
 
@@ -537,7 +542,7 @@ func TestBuildLintReportRequiresStagedPlanForNeedsPlanState(t *testing.T) {
 	}
 }
 
-func TestBuildLintReportRequiresExecutionDecisionEvenInFastMode(t *testing.T) {
+func TestBuildLintReportFastModeSkipsExecutionDecision(t *testing.T) {
 	report := BuildLintReport(Issue{
 		Body: strings.Join([]string{
 			"## 背景",
@@ -549,8 +554,28 @@ func TestBuildLintReportRequiresExecutionDecisionEvenInFastMode(t *testing.T) {
 		}, "\n"),
 		Labels: []string{"bug", "area:daemon", statusLabelImplementable},
 	}, WorkflowModeFast)
-	if !hasFindingCode(report.Findings, "missing-execution-decision-section") {
-		t.Fatalf("expected execution decision finding in fast mode, got %#v", report.Findings)
+	if hasFindingCode(report.Findings, "missing-execution-decision-section") {
+		t.Fatalf("fast mode should not require an execution decision, got %#v", report.Findings)
+	}
+	if report.WorkflowGuardrails.ExecutionDecisionRequired {
+		t.Fatalf("fast mode should not enable full execution guardrails, got %#v", report.WorkflowGuardrails)
+	}
+}
+
+func TestWorkflowContractCheckAllowsFastImplementableIssueWithMinimumSections(t *testing.T) {
+	report := BuildLintReport(Issue{
+		Body: strings.Join([]string{
+			"## 背景",
+			"body",
+			"## 目标",
+			"goal",
+			"## 完成标准",
+			"done",
+		}, "\n"),
+		Labels: []string{"bug", "area:daemon", statusLabelImplementable},
+	}, WorkflowModeFast)
+	if check := workflowContractCheck(report); check != nil && check.Status == CheckStatusFail {
+		t.Fatalf("fast workflow minimum contract should pass, got %#v", check)
 	}
 }
 
@@ -635,6 +660,64 @@ func TestWorkflowContractCheckFailsWhenNeedsPlanIssueHasNoPlan(t *testing.T) {
 	check := workflowContractCheck(report)
 	if check == nil || check.Status != CheckStatusFail {
 		t.Fatalf("expected workflow contract check to fail, got %#v", check)
+	}
+}
+
+func TestWorkflowContractCheckRejectsNeedsPlanIssueInFastMode(t *testing.T) {
+	report := BuildLintReport(Issue{
+		Body: strings.Join([]string{
+			"## 背景",
+			"body",
+			"## 目标",
+			"goal",
+			"## 完成标准",
+			"done",
+		}, "\n"),
+		Labels: []string{"bug", "area:daemon", statusLabelNeedsPlan},
+	}, WorkflowModeFast)
+	check := workflowContractCheck(report)
+	if check == nil || check.Status != CheckStatusFail || !strings.Contains(check.Message, "requires full workflow mode") {
+		t.Fatalf("expected fast mode to reject needs-plan state, got %#v", check)
+	}
+	if !hasFindingCode(report.Findings, "fast-mode-ineligible-state") {
+		t.Fatalf("expected lint to report fast mode as ineligible, got %#v", report.Findings)
+	}
+}
+
+func TestBuildLintReportRejectsFastModeForStructuredFullWorkflow(t *testing.T) {
+	tests := []struct {
+		name  string
+		extra []string
+	}{
+		{name: "parent issue", extra: []string{"## 拆分结构", "- #23"}},
+		{name: "child issue", extra: []string{"## 父 issue", "#21"}},
+		{name: "staged issue", extra: []string{"## 建议范围", "stage 1"}},
+		{name: "resumable issue", extra: []string{"## 执行快照", "- 当前阶段：stage 1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []string{
+				"## 背景",
+				"body",
+				"## 目标",
+				"goal",
+				"## 完成标准",
+				"done",
+			}
+			body = append(body, tt.extra...)
+			report := BuildLintReport(Issue{
+				Number: 22,
+				Body:   strings.Join(body, "\n"),
+				Labels: []string{"bug", "area:daemon", statusLabelImplementable},
+			}, WorkflowModeFast)
+			if !hasFindingCode(report.Findings, "fast-mode-ineligible-structure") {
+				t.Fatalf("expected structured issue to require full mode, got %#v", report.Findings)
+			}
+			check := workflowContractCheck(report)
+			if check == nil || check.Status != CheckStatusFail {
+				t.Fatalf("expected workflow contract to reject fast mode, got %#v", check)
+			}
+		})
 	}
 }
 
@@ -778,15 +861,6 @@ func hasFindingCode(findings []LintFinding, code string) bool {
 	return false
 }
 
-func hasCheckName(checks []CheckResult, name string) bool {
-	for _, check := range checks {
-		if check.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
 func findCheck(checks []CheckResult, name string) *CheckResult {
 	for i := range checks {
 		if checks[i].Name == name {
@@ -794,52 +868,6 @@ func findCheck(checks []CheckResult, name string) *CheckResult {
 		}
 	}
 	return nil
-}
-
-func TestValidateDocMetadataRejectsWrongType(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "docs", "general", "bad.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(path, []byte("# Bad\n\n> Type: `draft`\n> Updated: `2026-04-10`\n> Summary: `bad`\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	if err := validateDocMetadata(path, "general"); err == nil {
-		t.Fatal("expected validateDocMetadata to fail")
-	}
-}
-
-func TestFinishWarnsWhenKnowledgeWritebackNeedsReview(t *testing.T) {
-	gh := &fakeGitHubClient{
-		issue: Issue{
-			Number: 22,
-			Labels: []string{"processing"},
-		},
-	}
-	svc := &Service{
-		RootDir: t.TempDir(),
-		Git: &fakeGitClient{
-			originURL:    "https://github.com/kxn/codex-remote-feishu.git",
-			changedFiles: []string{"internal/app/daemon/app.go"},
-			diffCheckOutput: map[bool]string{
-				false: "",
-				true:  "",
-			},
-			diffCheckErr: map[bool]error{},
-		},
-		GitHub: gh,
-		Now:    time.Now,
-	}
-	result, err := svc.Finish(context.Background(), FinishOptions{
-		IssueNumber:       22,
-		ReleaseProcessing: true,
-	})
-	if err != nil {
-		t.Fatalf("Finish error = %v", err)
-	}
-	if !hasCheckName(result.Checks, "knowledge_writeback_review") {
-		t.Fatalf("expected knowledge write-back warning, got %#v", result.Checks)
-	}
 }
 
 func TestFinishFailsWorkflowContractForImplementableIssue(t *testing.T) {
@@ -860,9 +888,7 @@ func TestFinishFailsWorkflowContractForImplementableIssue(t *testing.T) {
 	svc := &Service{
 		RootDir: t.TempDir(),
 		Git: &fakeGitClient{
-			originURL:       "https://github.com/kxn/codex-remote-feishu.git",
-			diffCheckOutput: map[bool]string{false: "", true: ""},
-			diffCheckErr:    map[bool]error{},
+			originURL: "https://github.com/kxn/codex-remote-feishu.git",
 		},
 		GitHub: gh,
 		Now:    time.Now,
@@ -883,7 +909,7 @@ func TestFinishFailsWorkflowContractForImplementableIssue(t *testing.T) {
 	}
 }
 
-func TestFinishSkipChecksDoesNotRequireExecutionDecisionForBlockedIssue(t *testing.T) {
+func TestFinishDoesNotRequireExecutionDecisionForBlockedIssue(t *testing.T) {
 	gh := &fakeGitHubClient{
 		issue: Issue{
 			Number: 22,
@@ -909,7 +935,6 @@ func TestFinishSkipChecksDoesNotRequireExecutionDecisionForBlockedIssue(t *testi
 	result, err := svc.Finish(context.Background(), FinishOptions{
 		IssueNumber:       22,
 		ReleaseProcessing: true,
-		SkipChecks:        true,
 	})
 	if err != nil {
 		t.Fatalf("Finish error = %v", err)
@@ -963,7 +988,6 @@ func TestFinishCloseFailsWithoutVerifierPassForMediumIssue(t *testing.T) {
 		IssueNumber:       22,
 		CloseIssue:        true,
 		ReleaseProcessing: true,
-		SkipChecks:        true,
 	})
 	if err != nil {
 		t.Fatalf("Finish error = %v", err)
@@ -1035,7 +1059,6 @@ func TestFinishCloseFailsWhenChildRollupMissing(t *testing.T) {
 		IssueNumber:       22,
 		CloseIssue:        true,
 		ReleaseProcessing: true,
-		SkipChecks:        true,
 	})
 	if err != nil {
 		t.Fatalf("Finish error = %v", err)
@@ -1093,7 +1116,6 @@ func TestFinishCloseFailsForLegacyChildContract(t *testing.T) {
 		IssueNumber:       22,
 		CloseIssue:        true,
 		ReleaseProcessing: true,
-		SkipChecks:        true,
 	})
 	if err != nil {
 		t.Fatalf("Finish error = %v", err)
@@ -1166,7 +1188,6 @@ func TestFinishCloseFailsWhenParentSummaryIncomplete(t *testing.T) {
 		IssueNumber:       247,
 		CloseIssue:        true,
 		ReleaseProcessing: true,
-		SkipChecks:        true,
 	})
 	if err != nil {
 		t.Fatalf("Finish error = %v", err)
@@ -1278,7 +1299,6 @@ func TestFinishClosePassesWithVerifierAndRollups(t *testing.T) {
 		IssueNumber:       248,
 		CloseIssue:        true,
 		ReleaseProcessing: true,
-		SkipChecks:        true,
 	})
 	if err != nil {
 		t.Fatalf("Finish error = %v", err)

@@ -28,6 +28,7 @@ if [[ ${#staged_go_files[@]} -gt 0 ]]; then
 fi
 
 bash scripts/check/no-local-paths.sh
+bash scripts/check/docs-conventions.sh
 bash scripts/check/no-legacy-names.sh
 bash scripts/check/feishu-call-broker.sh
 bash scripts/check/eventcontract-legacy-guards.sh
@@ -35,3 +36,7 @@ bash scripts/check/go-file-length.sh
 bash scripts/check/go-format.sh
 
 bash scripts/check/release-track-version.sh
+
+validation_dir="$(git rev-parse --git-path codex-remote)"
+mkdir -p "${validation_dir}"
+git write-tree > "${validation_dir}/pre-commit-tree"

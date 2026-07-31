@@ -177,35 +177,6 @@ func (s *Service) Finish(ctx context.Context, opts FinishOptions) (result Finish
 		}
 		err = errors.Join(err, releaseErr)
 	}()
-	if !opts.SkipChecks {
-		if result.ChangedFiles, err = s.Git.ChangedFilesFromHEAD(ctx); err != nil {
-			return result, err
-		}
-		diffOutput, diffErr := s.Git.DiffCheck(ctx, false)
-		result.Checks = append(result.Checks, diffCheckResult("git_diff_check", diffOutput, diffErr))
-		cachedOutput, cachedErr := s.Git.DiffCheck(ctx, true)
-		result.Checks = append(result.Checks, diffCheckResult("git_cached_diff_check", cachedOutput, cachedErr))
-		if goCheck := s.gofmtCheck(ctx, result.ChangedFiles); goCheck != nil {
-			result.Checks = append(result.Checks, *goCheck)
-		}
-		if docsCheck := s.docsMetadataCheck(result.ChangedFiles); docsCheck != nil {
-			result.Checks = append(result.Checks, *docsCheck)
-		}
-		if docsIndexCheck, err := s.docsIndexCheck(ctx, result.ChangedFiles); err != nil {
-			return result, err
-		} else if docsIndexCheck != nil {
-			result.Checks = append(result.Checks, *docsIndexCheck)
-		}
-		if surfaceCheck := s.remoteSurfaceDocCheck(result.ChangedFiles); surfaceCheck != nil {
-			result.Checks = append(result.Checks, *surfaceCheck)
-		}
-		if knowledgeCheck := s.knowledgeWritebackCheck(result.ChangedFiles); knowledgeCheck != nil {
-			result.Checks = append(result.Checks, *knowledgeCheck)
-		}
-		if hasFailedCheck(result.Checks) {
-			return result, nil
-		}
-	}
 	commentsLimit := 1
 	if opts.CloseIssue {
 		commentsLimit = closeGateCommentsLimit
@@ -301,7 +272,15 @@ func BuildLintReport(issue Issue, mode WorkflowMode) LintReport {
 	default:
 		report.CurrentRecordedState = recordedStateMultiStatus
 	}
-	report.WorkflowGuardrails = detectWorkflowGuardrails(issue.Body, sections, len(report.RequiredMissing) == 0 && len(report.StatusLabels) == 1 && report.CurrentRecordedState == statusLabelImplementable)
+	if report.WorkflowMode == WorkflowModeFast && fastModeRequiresFullWorkflow(structure, sections) {
+		report.Findings = append(report.Findings, LintFinding{
+			Severity: LintSeverityError,
+			Code:     "fast-mode-ineligible-structure",
+			Message:  "parent/child, staged, or resumable issue structure requires full workflow mode",
+		})
+	}
+	fullMode := report.WorkflowMode == WorkflowModeFull
+	report.WorkflowGuardrails = detectWorkflowGuardrails(issue.Body, sections, fullMode && len(report.RequiredMissing) == 0 && len(report.StatusLabels) == 1 && report.CurrentRecordedState == statusLabelImplementable)
 	if len(report.RequiredMissing) > 0 {
 		report.Findings = append(report.Findings, LintFinding{
 			Severity: LintSeverityError,
@@ -396,21 +375,28 @@ func BuildLintReport(issue Issue, mode WorkflowMode) LintReport {
 	}
 	explicitlyImplementable := len(report.RequiredMissing) == 0 && len(report.StatusLabels) == 1 && report.CurrentRecordedState == statusLabelImplementable
 	explicitlyNeedsPlan := len(report.RequiredMissing) == 0 && len(report.StatusLabels) == 1 && report.CurrentRecordedState == statusLabelNeedsPlan
-	if explicitlyNeedsPlan && containsSection(report.PreferredMissing, "建议范围") {
+	if report.WorkflowMode == WorkflowModeFast && explicitlyNeedsPlan {
+		report.Findings = append(report.Findings, LintFinding{
+			Severity: LintSeverityError,
+			Code:     "fast-mode-ineligible-state",
+			Message:  "`status:needs-plan` requires full workflow mode",
+		})
+	}
+	if fullMode && explicitlyNeedsPlan && containsSection(report.PreferredMissing, "建议范围") {
 		report.Findings = append(report.Findings, LintFinding{
 			Severity: LintSeverityError,
 			Code:     "missing-staged-plan-section",
 			Message:  "issue is explicitly marked `status:needs-plan` but body does not yet include `建议范围`",
 		})
 	}
-	if explicitlyImplementable && containsSection(report.PreferredMissing, "建议范围") {
+	if fullMode && explicitlyImplementable && containsSection(report.PreferredMissing, "建议范围") {
 		report.Findings = append(report.Findings, LintFinding{
 			Severity: LintSeverityError,
 			Code:     "missing-staged-plan-section",
 			Message:  "issue is explicitly marked `status:implementable-now` but body does not yet include `建议范围`",
 		})
 	}
-	if explicitlyImplementable {
+	if fullMode && explicitlyImplementable {
 		missingExecutionSections := intersectSections(report.PreferredMissing, executionSections)
 		if len(missingExecutionSections) > 0 {
 			report.Findings = append(report.Findings, LintFinding{
@@ -430,6 +416,15 @@ func normalizeWorkflowMode(mode WorkflowMode) WorkflowMode {
 	default:
 		return WorkflowModeFull
 	}
+}
+
+func fastModeRequiresFullWorkflow(structure issueStructure, sections documentSections) bool {
+	return structure.IsParent ||
+		structure.ParentIssueNumber > 0 ||
+		sections.Present["建议范围"] ||
+		sections.Present["执行快照"] ||
+		sections.Present["当前执行点"] ||
+		sections.Present["恢复步骤"]
 }
 
 func scanSections(body string) map[string]bool {
@@ -606,6 +601,21 @@ func workflowContractCheck(report LintReport) *CheckResult {
 	if enforcePlanningContract && len(report.RequiredMissing) > 0 {
 		problems = append(problems, "missing required sections: "+strings.Join(report.RequiredMissing, ", "))
 	}
+	if report.WorkflowMode == WorkflowModeFast {
+		for _, finding := range report.Findings {
+			if finding.Code == "fast-mode-ineligible-state" || finding.Code == "fast-mode-ineligible-structure" {
+				problems = append(problems, finding.Message)
+			}
+		}
+		if len(problems) == 0 {
+			return &CheckResult{Name: "issue_workflow_contract", Status: CheckStatusPass, Message: "ok (fast mode)"}
+		}
+		return &CheckResult{
+			Name:    "issue_workflow_contract",
+			Status:  CheckStatusFail,
+			Message: strings.Join(problems, "; "),
+		}
+	}
 	if enforcePlanningContract && containsSection(report.PreferredMissing, "建议范围") {
 		problems = append(problems, "missing `建议范围` section")
 	}
@@ -657,225 +667,6 @@ func containsAny(value string, targets ...string) bool {
 		}
 	}
 	return false
-}
-
-func diffCheckResult(name string, output string, err error) CheckResult {
-	switch {
-	case err == nil:
-		return CheckResult{Name: name, Status: CheckStatusPass, Message: "ok"}
-	case strings.TrimSpace(output) != "":
-		return CheckResult{Name: name, Status: CheckStatusFail, Message: strings.TrimSpace(output)}
-	default:
-		return CheckResult{Name: name, Status: CheckStatusFail, Message: err.Error()}
-	}
-}
-
-func (s *Service) gofmtCheck(ctx context.Context, changedFiles []string) *CheckResult {
-	goFiles := make([]string, 0)
-	for _, file := range changedFiles {
-		if strings.HasSuffix(file, ".go") && (strings.HasPrefix(file, "cmd/") || strings.HasPrefix(file, "internal/") || strings.HasPrefix(file, "testkit/")) {
-			goFiles = append(goFiles, file)
-		}
-	}
-	if len(goFiles) == 0 {
-		return nil
-	}
-	unformatted, err := s.Git.GofmtList(ctx, goFiles)
-	if err != nil {
-		return &CheckResult{Name: "gofmt_changed_go_files", Status: CheckStatusFail, Message: err.Error()}
-	}
-	if len(unformatted) == 0 {
-		return &CheckResult{Name: "gofmt_changed_go_files", Status: CheckStatusPass, Message: "ok"}
-	}
-	return &CheckResult{
-		Name:    "gofmt_changed_go_files",
-		Status:  CheckStatusFail,
-		Message: "run gofmt on changed Go files: " + strings.Join(unformatted, ", "),
-	}
-}
-
-func (s *Service) docsMetadataCheck(changedFiles []string) *CheckResult {
-	docFiles := make([]string, 0)
-	for _, file := range changedFiles {
-		if strings.HasPrefix(file, "docs/") && strings.HasSuffix(file, ".md") {
-			docFiles = append(docFiles, file)
-		}
-	}
-	if len(docFiles) == 0 {
-		return nil
-	}
-	failures := make([]string, 0)
-	for _, file := range docFiles {
-		if err := validateDocMetadata(filepath.Join(s.RootDir, file), expectedDocType(file)); err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", file, err))
-		}
-	}
-	if len(failures) == 0 {
-		return &CheckResult{Name: "docs_metadata", Status: CheckStatusPass, Message: "ok"}
-	}
-	return &CheckResult{Name: "docs_metadata", Status: CheckStatusFail, Message: strings.Join(failures, "; ")}
-}
-
-func validateDocMetadata(path string, expectedType string) error {
-	payload, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(strings.ReplaceAll(string(payload), "\r\n", "\n"), "\n")
-	i := 0
-	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
-		i++
-	}
-	if i >= len(lines) || !strings.HasPrefix(strings.TrimSpace(lines[i]), "# ") {
-		return fmt.Errorf("missing title line")
-	}
-	i++
-	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
-		i++
-	}
-	required := []string{"> Type:", "> Updated:", "> Summary:"}
-	values := map[string]string{}
-	for _, prefix := range required {
-		if i >= len(lines) || !strings.HasPrefix(strings.TrimSpace(lines[i]), prefix) {
-			return fmt.Errorf("missing metadata line %s", prefix)
-		}
-		value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lines[i]), prefix))
-		values[prefix] = strings.Trim(value, "` ")
-		i++
-	}
-	if expectedType != "" && values["> Type:"] != expectedType {
-		return fmt.Errorf("type %q does not match docs/%s", values["> Type:"], expectedType)
-	}
-	if values["> Updated:"] == "" {
-		return fmt.Errorf("updated metadata is empty")
-	}
-	if values["> Summary:"] == "" {
-		return fmt.Errorf("summary metadata is empty")
-	}
-	return nil
-}
-
-func expectedDocType(file string) string {
-	parts := strings.Split(filepath.ToSlash(file), "/")
-	if len(parts) < 3 || parts[0] != "docs" {
-		return ""
-	}
-	return parts[1]
-}
-
-func (s *Service) docsIndexCheck(ctx context.Context, changedFiles []string) (*CheckResult, error) {
-	docReadmeChanged := false
-	for _, file := range changedFiles {
-		if file == "docs/README.md" {
-			docReadmeChanged = true
-			break
-		}
-	}
-	statusLines, err := s.Git.ChangedDocsNameStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	needsReadme := false
-	for _, line := range statusLines {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		status := fields[0]
-		switch {
-		case strings.HasPrefix(status, "A"), strings.HasPrefix(status, "D"), strings.HasPrefix(status, "R"), strings.HasPrefix(status, "C"):
-			needsReadme = true
-		}
-	}
-	if !needsReadme {
-		return nil, nil
-	}
-	if docReadmeChanged {
-		return &CheckResult{Name: "docs_readme_index", Status: CheckStatusPass, Message: "ok"}, nil
-	}
-	return &CheckResult{
-		Name:    "docs_readme_index",
-		Status:  CheckStatusFail,
-		Message: "docs add/delete/rename detected without updating docs/README.md",
-	}, nil
-}
-
-func (s *Service) remoteSurfaceDocCheck(changedFiles []string) *CheckResult {
-	sensitive := make([]string, 0)
-	docTouched := false
-	for _, file := range changedFiles {
-		switch {
-		case file == "docs/general/remote-surface-state-machine.md":
-			docTouched = true
-		case strings.HasSuffix(file, "_test.go"):
-		case strings.HasPrefix(file, "internal/core/orchestrator/"):
-			sensitive = append(sensitive, file)
-		case strings.HasPrefix(file, "internal/core/control/"):
-			sensitive = append(sensitive, file)
-		case file == "internal/core/state/types.go":
-			sensitive = append(sensitive, file)
-		case file == "internal/app/daemon/app_inbound_lifecycle.go":
-			sensitive = append(sensitive, file)
-		}
-	}
-	if len(sensitive) == 0 || docTouched {
-		return nil
-	}
-	sort.Strings(sensitive)
-	return &CheckResult{
-		Name:    "remote_surface_doc_guard",
-		Status:  CheckStatusWarning,
-		Message: "remote-surface-sensitive files changed without touching docs/general/remote-surface-state-machine.md: " + strings.Join(sensitive, ", "),
-	}
-}
-
-func (s *Service) knowledgeWritebackCheck(changedFiles []string) *CheckResult {
-	sourceChanged := make([]string, 0)
-	knowledgeTouched := false
-	for _, file := range changedFiles {
-		switch {
-		case isKnowledgeCarrier(file):
-			knowledgeTouched = true
-		case strings.HasSuffix(file, "_test.go"):
-		case strings.HasPrefix(file, "cmd/") && strings.HasSuffix(file, ".go"):
-			sourceChanged = append(sourceChanged, file)
-		case strings.HasPrefix(file, "internal/") && strings.HasSuffix(file, ".go"):
-			sourceChanged = append(sourceChanged, file)
-		case strings.HasPrefix(file, "testkit/") && strings.HasSuffix(file, ".go"):
-			sourceChanged = append(sourceChanged, file)
-		case strings.HasPrefix(file, "scripts/"):
-			sourceChanged = append(sourceChanged, file)
-		}
-	}
-	if len(sourceChanged) == 0 || knowledgeTouched {
-		return nil
-	}
-	sort.Strings(sourceChanged)
-	return &CheckResult{
-		Name:   "knowledge_writeback_review",
-		Status: CheckStatusWarning,
-		Message: "non-test implementation files changed without touching durable knowledge carriers; re-check issue body/docs/skills/templates before close-out: " +
-			strings.Join(sourceChanged, ", "),
-	}
-}
-
-func isKnowledgeCarrier(file string) bool {
-	switch {
-	case file == "AGENTS.md":
-		return true
-	case file == "DEVELOPER.md":
-		return true
-	case file == "README.md":
-		return true
-	case strings.HasPrefix(file, "docs/"):
-		return true
-	case strings.HasPrefix(file, ".codex/skills/"):
-		return true
-	case strings.HasPrefix(file, ".github/ISSUE_TEMPLATE/"):
-		return true
-	default:
-		return false
-	}
 }
 
 func hasFailedCheck(checks []CheckResult) bool {

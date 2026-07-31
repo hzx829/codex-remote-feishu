@@ -102,17 +102,31 @@ if [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
   exit 1
 fi
 
-printf '[0/8] verify gofmt\n'
-bash scripts/check/go-format.sh
+validation_stamp="$(git rev-parse --git-path codex-remote/pre-commit-tree)"
+head_tree="$(git rev-parse 'HEAD^{tree}')"
+validated_tree=""
+if [[ -f "${validation_stamp}" ]]; then
+  validated_tree="$(tr -d '[:space:]' < "${validation_stamp}")"
+fi
 
-printf '[1/8] check public docs for machine-local paths\n'
-bash scripts/check/no-local-paths.sh
+if [[ -n "${validated_tree}" && "${validated_tree}" == "${head_tree}" ]]; then
+  printf '[0/8] pre-commit guardrails already passed for HEAD tree %s\n' "${head_tree}"
+  printf '[1/8] skip machine-local path check (validated by pre-commit)\n'
+  printf '[2/8] skip legacy name check (validated by pre-commit)\n'
+  printf '[3/8] skip Feishu broker guardrail (validated by pre-commit)\n'
+else
+  printf '[0/8] verify gofmt\n'
+  bash scripts/check/go-format.sh
 
-printf '[2/8] check legacy names are gone\n'
-bash scripts/check/no-legacy-names.sh
+  printf '[1/8] check public docs for machine-local paths\n'
+  bash scripts/check/no-local-paths.sh
 
-printf '[3/8] check Feishu broker guardrail\n'
-bash scripts/check/feishu-call-broker.sh
+  printf '[2/8] check legacy names are gone\n'
+  bash scripts/check/no-legacy-names.sh
+
+  printf '[3/8] check Feishu broker guardrail\n'
+  bash scripts/check/feishu-call-broker.sh
+fi
 
 current_branch="$(git branch --show-current)"
 if [[ -z "${current_branch}" ]]; then

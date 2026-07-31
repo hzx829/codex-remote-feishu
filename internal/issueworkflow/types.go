@@ -152,14 +152,12 @@ type FinishOptions struct {
 	CommentFile       string
 	CloseIssue        bool
 	ReleaseProcessing bool
-	SkipChecks        bool
 	WorkflowMode      WorkflowMode
 }
 
 type FinishResult struct {
 	Repo               string        `json:"repo"`
 	IssueNumber        int           `json:"issueNumber"`
-	ChangedFiles       []string      `json:"changedFiles,omitempty"`
 	Checks             []CheckResult `json:"checks,omitempty"`
 	CommentPosted      bool          `json:"commentPosted,omitempty"`
 	IssueClosed        bool          `json:"issueClosed,omitempty"`

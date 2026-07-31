@@ -24,12 +24,39 @@
 When any GitHub issue number or URL appears in the conversation:
 
 - Do **not** start code assessment or implementation directly.
-- First enter the issue workflow via `prepare`: read the issue, classify as `tiny` / `medium` / `large`, verify current state against the live codebase, and decide the execution path.
+- First classify the work as `tiny` / `fast` / `full`, then enter the selected issue workflow via `prepare`: read the issue, verify current state against the live codebase, and decide the execution path.
 - A `tiny` fix that can be finished immediately is the only exception that skips formal `prepare`.
-- For medium/large issues: shape the issue before implementation, record an execution snapshot in the issue body, and follow `lint` / `finish` entry points.
+- Use `fast` automatically for an already-clear, single-stage, low-risk issue. Use `full` for external-reporter, parent/child, multi-stage, state-machine, migration, security-sensitive, or otherwise uncertain work.
+- For `full` issues: shape the issue before implementation, record an execution snapshot when work is multi-stage or multi-turn, and follow `lint` / `finish` entry points.
 - Never conflate "product decision received" with "ready to implement" — first complete the prepare pass, then proceed.
 - If the issue carries `status:needs-clarification` or equivalent, surface the decision question before shaping or implementation.
 - This rule applies regardless of whether the user explicitly says "按流程" — issue numbers and URLs are the trigger.
+
+## Repo-Local Issue Workflow Ownership (Always On)
+
+This ownership rule applies only inside this repository. Do not modify global Superpowers skills under `$CODEX_HOME`, and do not carry this override into repositories that do not provide their own issue workflow.
+
+When `issue-workflow-guardrail` is triggered here, it is the sole lifecycle owner for issue shaping, product decisions, planning, execution orchestration, independent acceptance, publish, and close-out.
+
+- Do not additionally invoke these generic Superpowers lifecycle skills merely because the task involves design or implementation:
+  - `superpowers:brainstorming`
+  - `superpowers:writing-plans`
+  - `superpowers:executing-plans`
+  - `superpowers:subagent-driven-development`
+  - `superpowers:requesting-code-review`
+  - `superpowers:finishing-a-development-branch`
+  - `superpowers:using-git-worktrees`
+- Continue using method skills when their technical trigger matches:
+  - `superpowers:systematic-debugging` for root-cause investigation
+  - `superpowers:test-driven-development` when implementation risk justifies TDD
+  - `superpowers:verification-before-completion` as the requirement for fresh evidence, without rerunning checks already proven by the current commit/push flow
+  - parallel-agent skills only when work is genuinely independent and parallelizable
+- Keep one durable artifact per concern:
+  - issue body for requirements, decisions, status, and execution snapshots
+  - a normal repository lifecycle doc for long designs
+  - `issue-verifier` for the single independent acceptance pass when `full` requires one
+  - pre-commit plus `safe-push` for repository mechanical checks and publication
+- Do not create duplicate `docs/superpowers/specs` or `docs/superpowers/plans` artifacts for workflow-managed issue work.
 
 ## Workspace Cleanliness Rule (Always On)
 
@@ -172,6 +199,8 @@ Mode override phrases:
 - force `fast`: `workflow:fast`, `fast path`, `快速处理`, `简化流程`
 - force `full`: `workflow:full`, `full path`, `完整流程`, `标准 issue workflow`
 
+Without an explicit override, select `fast` for clear single-stage low-risk work and `full` for external-reporter, parent/child, multi-stage, state-machine, migration, security-sensitive, or uncertain work. When classification is uncertain, use `full`.
+
 ### `issue-verifier`
 
 Use `.codex/skills/issue-verifier/` when issue work needs an independent validation pass:
@@ -180,7 +209,7 @@ Use `.codex/skills/issue-verifier/` when issue work needs an independent validat
 - `独立验证`
 - `对齐验证`
 - `完成前复核`
-- medium/large issue is otherwise ready to close and needs a read-only acceptance check
+- a `full` issue is otherwise ready to close and needs a read-only acceptance check
 
 If the issue is still shaping, still missing execution closure, or still actively being implemented, stay on `issue-workflow-guardrail` first.
 
@@ -417,7 +446,7 @@ When corresponding logic carriers changed, do **not** commit until: guardrail sk
 - When issue work uncovers a small, non-blocking, low-priority follow-up that is not worth a standalone issue, record it under a dedicated `低优先级待办` section in the active issue body instead of leaving it only in chat.
 - If implementation uncovers a red inconsistency that changes goals, acceptance, dependencies, or sibling issue assumptions, stop local patching and return the result to the orchestrating issue for replanning.
 - If issue work reaches a real product decision gate, do not guess. Add a dedicated `待决策` or `产品待拍板` section with the minimal decision packet, ask only for the smallest blocking decision, then resume after that decision is synced back into the issue body.
-- For medium/large finished issues, default to an independent verifier pass before close-out; only skip when the user explicitly waives it or the task is explicitly `workflow:fast`.
+- For finished `full` issues, default to an independent verifier pass before close-out; `fast` issues do not require one unless risk increased during execution.
 - Before `finish --close`, run `issuectl close-plan` and fix any returned issue-side blockers instead of using the first close attempt as a probe.
 - Treat a stale naked `processing` label as a recoverable lease, not a permanent lock; the default `prepare` path may reclaim it after the configured stale window, and resumed work must refresh the issue snapshot before continuing.
 - If a child issue has a parent issue, do not `finish --close` it until the parent has received a durable roll-up of the child result.

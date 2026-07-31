@@ -188,7 +188,9 @@ func (s *Service) attachSurfaceToKnownThreadWithOverlayCleanup(surface *state.Su
 
 	events := s.prepareSurfaceForExecutionReattachWithOverlayCleanup(surface, cleanup)
 	surface.Backend = instanceBackend
-	s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface)
+	if blocked := s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface); len(blocked) != 0 {
+		return append(events, blocked...)
+	}
 
 	if isHeadlessInstance(inst) && strings.TrimSpace(threadCWD(view)) != "" && !cwdBelongsToInstanceWorkspace(inst, threadCWD(view)) {
 		s.retargetManagedHeadlessInstance(inst, threadCWD(view))
@@ -449,7 +451,9 @@ func (s *Service) startHeadlessForResolvedThreadWithModeAndOverlayCleanup(surfac
 		}
 	}
 	surface.Backend = agentproto.NormalizeBackend(targetBackend)
-	s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface)
+	if blocked := s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface); len(blocked) != 0 {
+		return append(events, blocked...)
+	}
 	launchContract := s.headlessLaunchContract(surface)
 	s.adoptSurfacePendingHeadlessLaunch(surface, &state.HeadlessLaunchRecord{
 		InstanceID:            instanceID,

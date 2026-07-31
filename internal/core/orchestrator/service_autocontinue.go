@@ -231,6 +231,9 @@ func (s *Service) maybeDispatchPendingAutoContinue(surface *state.SurfaceConsole
 	if episode == nil || !surface.AutoContinue.Enabled || episode.State != state.AutoContinueEpisodeScheduled {
 		return nil
 	}
+	if blocked, ok := s.invalidBotCapabilitySettingsDispatchGate(surface); ok {
+		return blocked
+	}
 	if strings.TrimSpace(surface.AttachedInstanceID) == "" || strings.TrimSpace(surface.AttachedInstanceID) != strings.TrimSpace(episode.InstanceID) {
 		clearAutoContinueRuntime(surface)
 		return nil

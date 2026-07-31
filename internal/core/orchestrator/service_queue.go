@@ -247,6 +247,9 @@ func freezeRoute(inst *state.InstanceRecord, surface *state.SurfaceConsoleRecord
 }
 
 func (s *Service) dispatchNext(surface *state.SurfaceConsoleRecord) []eventcontract.Event {
+	if blocked, ok := s.invalidBotCapabilitySettingsDispatchGate(surface); ok {
+		return blocked
+	}
 	if surface.DispatchMode != state.DispatchModeNormal || surface.ActiveQueueItemID != "" || len(surface.QueuedQueueItemIDs) == 0 {
 		if surface.DispatchMode != state.DispatchModeNormal || surface.ActiveQueueItemID != "" {
 			return nil

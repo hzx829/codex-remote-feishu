@@ -619,6 +619,7 @@ func (a *App) onEvents(ctx context.Context, instanceID string, events []agentpro
 		return
 	}
 	syncSurfaceResumeState := false
+	syncBotCapabilitySettingsState := false
 	for _, event := range events {
 		now := time.Now().UTC()
 		if historyEvents, handled := a.handleThreadHistoryEventLocked(instanceID, event); handled {
@@ -672,10 +673,16 @@ func (a *App) onEvents(ctx context.Context, instanceID string, events []agentpro
 		if eventAffectsSurfaceResumeState(event) {
 			syncSurfaceResumeState = true
 		}
+		if eventAffectsBotCapabilitySettingsState(event) {
+			syncBotCapabilitySettingsState = true
+		}
 	}
 	if syncSurfaceResumeState {
 		a.syncSurfaceResumeStateForInstanceLocked(instanceID, nil)
 		a.syncClaudeWorkspaceProfileStateLocked()
+	}
+	if syncBotCapabilitySettingsState {
+		a.syncBotCapabilitySettingsStateLocked()
 	}
 }
 
@@ -738,6 +745,10 @@ func eventAffectsSurfaceResumeState(event agentproto.Event) bool {
 	default:
 		return false
 	}
+}
+
+func eventAffectsBotCapabilitySettingsState(event agentproto.Event) bool {
+	return event.Kind == agentproto.EventRequestResolved
 }
 
 func (a *App) onCommandAck(ctx context.Context, instanceID string, ack agentproto.CommandAck) {

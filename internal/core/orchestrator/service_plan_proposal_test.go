@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -315,11 +316,12 @@ func TestPlanProposalExecuteEnqueuesContinuationAndDisablesPlanMode(t *testing.T
 		},
 	}
 	svc.UpsertInstance(inst)
-	svc.MaterializeSurface("surface-1", "app-1", "chat-1", "user-1")
-	surface := svc.root.Surfaces["surface-1"]
+	surfaceID := "feishu:app-1:user:user-1"
+	svc.MaterializeSurface(surfaceID, "app-1", "user-1", "user-1")
+	surface := svc.root.Surfaces[surfaceID]
 	surface.AttachedInstanceID = "inst-1"
-	surface.PlanMode = state.PlanModeSettingOn
 	svc.bindSurfaceToThreadMode(surface, inst, "thread-1", state.RouteModePinned)
+	svc.ApplySurfaceAction(privateCapabilityAction(control.ActionPlanCommand, "app-1", "user-1", "/plan on"))
 
 	svc.ApplyAgentEvent("inst-1", agentproto.Event{
 		Kind:      agentproto.EventTurnStarted,
@@ -357,7 +359,9 @@ func TestPlanProposalExecuteEnqueuesContinuationAndDisablesPlanMode(t *testing.T
 
 	events := svc.ApplySurfaceAction(control.Action{
 		Kind:             control.ActionPlanProposalDecision,
-		SurfaceSessionID: "surface-1",
+		SurfaceSessionID: surfaceID,
+		GatewayID:        "app-1",
+		ChatID:           "user-1",
 		ActorUserID:      "user-1",
 		MessageID:        "om-proposal-1",
 		PickerID:         proposal.ProposalID,
@@ -366,6 +370,10 @@ func TestPlanProposalExecuteEnqueuesContinuationAndDisablesPlanMode(t *testing.T
 
 	if state.NormalizePlanModeSetting(surface.PlanMode) != state.PlanModeSettingOff {
 		t.Fatalf("expected execute action to disable plan mode, got %q", surface.PlanMode)
+	}
+	record := svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")]
+	if record.PlanMode != state.PlanModeSettingOff || !record.PlanModeOverrideSet {
+		t.Fatalf("expected execute action to persist explicit plan off, got %#v", record)
 	}
 	if svc.activePlanProposal(surface) != nil {
 		t.Fatal("expected execute action to clear active plan proposal runtime")
@@ -398,5 +406,67 @@ func TestPlanProposalExecuteEnqueuesContinuationAndDisablesPlanMode(t *testing.T
 	}
 	if !foundDispatch {
 		t.Fatalf("expected execute action to dispatch a prompt-send command, got %#v", events)
+	}
+}
+
+func TestPlanProposalExecuteStopsWhenCapabilityLifecycleMutationFails(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 5, 0, 0, time.UTC)
+	svc := newServiceForTest(&now)
+	inst := &state.InstanceRecord{
+		InstanceID:    "inst-1",
+		WorkspaceRoot: "/data/dl/droid",
+		WorkspaceKey:  "/data/dl/droid",
+		Online:        true,
+		Threads: map[string]*state.ThreadRecord{
+			"thread-1": {ThreadID: "thread-1", CWD: "/data/dl/droid", Loaded: true},
+		},
+	}
+	svc.UpsertInstance(inst)
+	surface := &state.SurfaceConsoleRecord{
+		SurfaceSessionID:   "feishu:app-1:user:user-1",
+		Platform:           "feishu",
+		GatewayID:          "app-1",
+		ChatID:             "user-1",
+		ActorUserID:        "user-1",
+		AttachedInstanceID: "inst-1",
+		RouteMode:          state.RouteModePinned,
+		SelectedThreadID:   "thread-1",
+		QueueItems:         map[string]*state.QueueItemRecord{},
+		StagedImages:       map[string]*state.StagedImageRecord{},
+		StagedFiles:        map[string]*state.StagedFileRecord{},
+		PendingRequests:    map[string]*state.RequestPromptRecord{},
+		SurfaceMessages:    map[string]*state.SurfaceMessageRecord{},
+	}
+	svc.root.Surfaces[surface.SurfaceSessionID] = surface
+	flow := newOwnerCardFlowRecord(ownerCardFlowKindPlanProposal, "proposal-1", "user-1", now, defaultPlanProposalTTL, ownerCardFlowPhaseResolved)
+	svc.setActiveOwnerCardFlow(surface, flow)
+	svc.setActivePlanProposal(surface, newPlanProposalRecord("proposal-1", "inst-1", "thread-1", "turn-1", "/data/dl/droid", "Implement it", "", now, defaultPlanProposalTTL))
+	svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")] = state.BotCapabilitySettingsRecord{}
+
+	events := svc.handlePlanProposalDecision(surface, control.Action{
+		Kind:        control.ActionPlanProposalDecision,
+		ActorUserID: "user-1",
+		MessageID:   "om-proposal-1",
+		PickerID:    "proposal-1",
+		OptionID:    planProposalActionExecute,
+	})
+
+	if surface.ActiveQueueItemID != "" || len(surface.QueuedQueueItemIDs) != 0 {
+		t.Fatalf("failed lifecycle mutation still enqueued continuation: active=%q queued=%#v", surface.ActiveQueueItemID, surface.QueuedQueueItemIDs)
+	}
+	foundFeedback := eventsContainNotice(events, "bot_capability_settings_invalid", "机器人设置")
+	for _, event := range events {
+		catalog, ok := eventCommandCatalog(event)
+		if !ok || !catalog.Sealed {
+			continue
+		}
+		for _, section := range catalog.NoticeSections {
+			for _, line := range section.Lines {
+				foundFeedback = foundFeedback || strings.Contains(line, "机器人设置")
+			}
+		}
+	}
+	if !foundFeedback {
+		t.Fatalf("expected failed proposal handoff feedback, got %#v", events)
 	}
 }

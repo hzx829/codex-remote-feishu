@@ -92,6 +92,7 @@ func (s *Service) ensureSurface(action control.Action) *state.SurfaceConsoleReco
 		if surface.SurfaceMessages == nil {
 			surface.SurfaceMessages = map[string]*state.SurfaceMessageRecord{}
 		}
+		s.projectLatestBotCapabilitySettingsToSurface(surface)
 		s.normalizeSurfaceProductMode(surface)
 		s.surfaceCurrentWorkspaceKey(surface)
 		s.ensureFeishuRoomContextForSurface(surface)
@@ -119,6 +120,7 @@ func (s *Service) ensureSurface(action control.Action) *state.SurfaceConsoleReco
 		SurfaceMessages:     map[string]*state.SurfaceMessageRecord{},
 	}
 	s.root.Surfaces[action.SurfaceSessionID] = surface
+	s.projectLatestBotCapabilitySettingsToSurface(surface)
 	s.ensureFeishuRoomContextForSurface(surface)
 	return surface
 }

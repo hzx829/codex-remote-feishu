@@ -131,6 +131,7 @@ func (s *Service) MaterializeSurfaceResumeContract(surfaceID, gatewayID, chatID,
 	s.setSurfaceDesiredContract(surface, contract)
 	surface.Verbosity = state.NormalizeSurfaceVerbosity(verbosity)
 	surface.PlanMode = state.NormalizePlanModeSetting(planMode)
+	s.projectLatestBotCapabilitySettingsToSurface(surface)
 }
 
 func (s *Service) BindPendingRemoteCommand(surfaceID, commandID string) {

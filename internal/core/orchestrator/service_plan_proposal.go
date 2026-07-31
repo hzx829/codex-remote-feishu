@@ -352,7 +352,9 @@ func (s *Service) handlePlanProposalDecision(surface *state.SurfaceConsoleRecord
 		if cwd == "" {
 			return s.sealPlanProposal(surface, action.MessageID, "当前无法确定执行目录，请先重新选择工作区或会话。", "error", commandCardOwnsInlineResult(action))
 		}
-		setSurfacePlanModeOverride(surface, state.PlanModeSettingOff)
+		if !s.setLifecyclePlanModeOverride(surface, state.PlanModeSettingOff) {
+			return s.sealPlanProposal(surface, action.MessageID, "机器人设置当前不可用，未继续执行这份提案。请联系管理员修复后重试。", "error", commandCardOwnsInlineResult(action))
+		}
 		events := s.sealPlanProposal(surface, action.MessageID, "已关闭 Plan mode，并开始按这份提案继续执行。", "success", commandCardOwnsInlineResult(action))
 		return append(events, s.enqueueQueueItem(
 			surface,
@@ -377,7 +379,9 @@ func (s *Service) handlePlanProposalDecision(surface *state.SurfaceConsoleRecord
 		if cwd == "" {
 			return s.sealPlanProposal(surface, action.MessageID, "当前无法确定新上下文的工作目录，请先重新选择工作区或会话。", "error", commandCardOwnsInlineResult(action))
 		}
-		setSurfacePlanModeOverride(surface, state.PlanModeSettingOff)
+		if !s.setLifecyclePlanModeOverride(surface, state.PlanModeSettingOff) {
+			return s.sealPlanProposal(surface, action.MessageID, "机器人设置当前不可用，未继续执行这份提案。请联系管理员修复后重试。", "error", commandCardOwnsInlineResult(action))
+		}
 		events := s.sealPlanProposal(surface, action.MessageID, "已关闭 Plan mode，并开始在新上下文里按提案执行。", "success", commandCardOwnsInlineResult(action))
 		return append(events, s.enqueueQueueItem(
 			surface,

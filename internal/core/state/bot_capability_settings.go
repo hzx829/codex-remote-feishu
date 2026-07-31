@@ -10,6 +10,16 @@ import (
 const (
 	SurfaceCapabilitySettingsSourceSurface = "surface"
 	SurfaceCapabilitySettingsSourceBot     = "bot"
+	SurfaceCapabilitySettingsSourceInvalid = "invalid"
+)
+
+type BotCapabilitySettingsLookupStatus string
+
+const (
+	BotCapabilitySettingsLookupNotApplicable BotCapabilitySettingsLookupStatus = "not_applicable"
+	BotCapabilitySettingsLookupAbsent        BotCapabilitySettingsLookupStatus = "absent"
+	BotCapabilitySettingsLookupValid         BotCapabilitySettingsLookupStatus = "valid"
+	BotCapabilitySettingsLookupInvalid       BotCapabilitySettingsLookupStatus = "invalid"
 )
 
 func BotCapabilitySettingsKey(gatewayID string) string {
@@ -25,16 +35,18 @@ func NormalizeBotCapabilitySettingsRecord(record BotCapabilitySettingsRecord) (B
 	if record.GatewayID == "" {
 		return BotCapabilitySettingsRecord{}, false
 	}
+	codexProviderID := NormalizeDesiredCodexProviderID(record.CodexProviderID)
+	claudeProfileID := NormalizeDesiredClaudeProfileID(record.ClaudeProfileID)
 	contract := NormalizeSurfaceBackendContract(SurfaceBackendContract{
 		ProductMode:     record.ProductMode,
 		Backend:         record.Backend,
-		CodexProviderID: strings.TrimSpace(record.CodexProviderID),
-		ClaudeProfileID: strings.TrimSpace(record.ClaudeProfileID),
+		CodexProviderID: codexProviderID,
+		ClaudeProfileID: claudeProfileID,
 	})
 	record.ProductMode = contract.ProductMode
 	record.Backend = contract.Backend
-	record.CodexProviderID = contract.CodexProviderID
-	record.ClaudeProfileID = contract.ClaudeProfileID
+	record.CodexProviderID = codexProviderID
+	record.ClaudeProfileID = claudeProfileID
 	record.PromptOverride = NormalizeModelConfigRecord(record.PromptOverride)
 	record.PlanMode = NormalizePlanModeSetting(record.PlanMode)
 	record.UpdatedBy = strings.TrimSpace(record.UpdatedBy)
@@ -65,7 +77,8 @@ func BotCapabilitySettingsContract(record BotCapabilitySettingsRecord) SurfaceBa
 }
 
 func EffectiveSurfaceCapabilitySettings(root *Root, surface *SurfaceConsoleRecord) SurfaceCapabilitySettings {
-	if record, ok := surfaceBotCapabilitySettings(root, surface); ok {
+	record, status := LookupSurfaceBotCapabilitySettings(root, surface)
+	if status == BotCapabilitySettingsLookupValid {
 		return SurfaceCapabilitySettings{
 			Contract:            BotCapabilitySettingsContract(record),
 			PromptOverride:      NormalizeModelConfigRecord(record.PromptOverride),
@@ -73,6 +86,9 @@ func EffectiveSurfaceCapabilitySettings(root *Root, surface *SurfaceConsoleRecor
 			PlanModeOverrideSet: record.PlanModeOverrideSet,
 			Source:              SurfaceCapabilitySettingsSourceBot,
 		}
+	}
+	if status == BotCapabilitySettingsLookupInvalid {
+		return SurfaceCapabilitySettings{Source: SurfaceCapabilitySettingsSourceInvalid}
 	}
 	if surface == nil {
 		return SurfaceCapabilitySettings{
@@ -89,22 +105,29 @@ func EffectiveSurfaceCapabilitySettings(root *Root, surface *SurfaceConsoleRecor
 	}
 }
 
-func surfaceBotCapabilitySettings(root *Root, surface *SurfaceConsoleRecord) (BotCapabilitySettingsRecord, bool) {
-	if root == nil || surface == nil || !surfaceUsesBotCapabilitySettings(surface) {
-		return BotCapabilitySettingsRecord{}, false
+func LookupSurfaceBotCapabilitySettings(root *Root, surface *SurfaceConsoleRecord) (BotCapabilitySettingsRecord, BotCapabilitySettingsLookupStatus) {
+	if root == nil || surface == nil || !SurfaceUsesBotCapabilitySettings(surface) {
+		return BotCapabilitySettingsRecord{}, BotCapabilitySettingsLookupNotApplicable
 	}
 	key := BotCapabilitySettingsKey(surface.GatewayID)
 	if key == "" {
-		return BotCapabilitySettingsRecord{}, false
+		return BotCapabilitySettingsRecord{}, BotCapabilitySettingsLookupNotApplicable
 	}
 	record, ok := root.BotCapabilitySettings[key]
 	if !ok {
-		return BotCapabilitySettingsRecord{}, false
+		return BotCapabilitySettingsRecord{}, BotCapabilitySettingsLookupAbsent
 	}
-	return NormalizeBotCapabilitySettingsRecord(record)
+	record, ok = NormalizeBotCapabilitySettingsRecord(record)
+	if !ok {
+		return BotCapabilitySettingsRecord{}, BotCapabilitySettingsLookupInvalid
+	}
+	if BotCapabilitySettingsKey(record.GatewayID) != key {
+		return BotCapabilitySettingsRecord{}, BotCapabilitySettingsLookupInvalid
+	}
+	return record, BotCapabilitySettingsLookupValid
 }
 
-func surfaceUsesBotCapabilitySettings(surface *SurfaceConsoleRecord) bool {
+func SurfaceUsesBotCapabilitySettings(surface *SurfaceConsoleRecord) bool {
 	if surface == nil || strings.TrimSpace(surface.ChatID) == "" {
 		return false
 	}
@@ -112,5 +135,5 @@ func surfaceUsesBotCapabilitySettings(surface *SurfaceConsoleRecord) bool {
 		return false
 	}
 	ref, ok := feishuidentity.ParseSurfaceRef(surface.SurfaceSessionID)
-	return ok && ref.IsChat()
+	return ok && ref.GatewayID == strings.TrimSpace(surface.GatewayID) && (ref.IsUser() || ref.IsChat())
 }

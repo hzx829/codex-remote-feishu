@@ -69,7 +69,9 @@ func (s *Service) attachWorkspaceWithOptions(surface *state.SurfaceConsoleRecord
 		Title:     "未选择会话",
 		Preview:   "",
 	}
-	s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface)
+	if blocked := s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface); len(blocked) != 0 {
+		return append(events, blocked...)
+	}
 	if options.PrepareNewThread {
 		return s.prepareNewThreadWithOverlayCleanup(surface, options.OverlayCleanup)
 	}
@@ -154,7 +156,9 @@ func (s *Service) attachInstanceWithMode(surface *state.SurfaceConsoleRecord, in
 	s.persistCurrentClaudeWorkspaceProfileSnapshot(surface)
 
 	events := s.prepareSurfaceForExecutionReattachWithOverlayCleanup(surface, surfaceOverlayRouteCleanupOptions{})
-	s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface)
+	if blocked := s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface); len(blocked) != 0 {
+		return append(events, blocked...)
+	}
 
 	if s.surfaceIsVSCode(surface) {
 		if !s.transitionSurfaceRouteCore(surface, inst, surfaceRouteCoreState{

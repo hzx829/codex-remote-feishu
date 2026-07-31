@@ -148,7 +148,9 @@ func (s *Service) startFreshWorkspaceHeadlessWithOverlayCleanup(surface *state.S
 	if !s.claimWorkspace(surface, workspaceKey) {
 		return append(events, notice(surface, "workspace_busy", "目标 workspace 当前已被其他飞书会话接管，请等待对方 /detach。")...)
 	}
-	s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface)
+	if blocked := s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface); len(blocked) != 0 {
+		return append(events, blocked...)
+	}
 	launchContract := s.headlessLaunchContract(surface)
 	s.adoptSurfacePendingHeadlessLaunch(surface, &state.HeadlessLaunchRecord{
 		InstanceID:            instanceID,

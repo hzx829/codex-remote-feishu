@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-07-31`
-> Summary: 对齐当前统一二进制入口、兼容 launcher 与实际目录结构，并补充 daemon 作为组合根的 runtime owner 收口、durable JSON store 的统一 fail-closed load policy、Feishu adapter 的 controller/gateway/projector/preview 边界、Feishu surface identity 与 ordinary inbound planner 的单一实现、gateway-local FIFO lane、orchestrator service-owned UI/runtime cluster、`control.Action` 的 request / owner-flow family 收口、`UIEvent` 的 view-kind 命名、daemon 本地 Feishu tool listener 的 MCP-native streamable HTTP 协议面、current-surface 显式图片/文件投递 contract，以及 editor 侧共享 VS Code bundle entrypoint 探测边界。
+> Summary: 对齐当前统一二进制入口、兼容 launcher 与实际目录结构，并补充 daemon 作为组合根的 runtime owner 收口、durable JSON store 的统一 fail-closed load policy、Feishu gateway 级 bot capability 单写源与 surface 执行投影、Feishu adapter 的 controller/gateway/projector/preview 边界、Feishu surface identity 与 ordinary inbound planner 的单一实现、gateway-local FIFO lane、orchestrator service-owned UI/runtime cluster、`control.Action` 的 request / owner-flow family 收口、`UIEvent` 的 view-kind 命名、daemon 本地 Feishu tool listener 的 MCP-native streamable HTTP 协议面、current-surface 显式图片/文件投递 contract，以及 editor 侧共享 VS Code bundle entrypoint 探测边界。
 
 ## 1. 当前状态
 
@@ -113,6 +113,7 @@ testkit/
 - `InstanceRecord`
 - `ThreadRecord`
 - `SurfaceConsoleRecord`
+- `BotCapabilitySettingsRecord`
 - `QueueItemRecord`
 - `StagedImageRecord`
 
@@ -133,6 +134,7 @@ testkit/
 - queue 与 staged image
 - local-priority / handoff
 - model / reasoning override
+- gateway 级 bot capability 字段事务与 surface 执行投影
 - 将 agent event 映射成 UIEvent 和 command
 
 另外，当前也负责 per-surface 的瞬时 UI runtime：
@@ -155,6 +157,17 @@ testkit/
   - 负责 compact notice、exec/tool progress、turn artifact 与相关派生投影
 
 这几簇当前仍留在同包内，以减少过早拆包带来的导出污染；`Service` 自己则更接近组合根和跨簇编排点。
+
+Feishu bot capability 的当前所有权边界是：
+
+- gateway 级 `BotCapabilitySettingsRecord` 是 mode/backend、Codex provider、Claude profile、model/reasoning/access override 与 plan override 的唯一可变业务事实
+- 合法 Feishu 私聊命令从最新 record 开始做字段级事务，并且只有这条配置入口可以在 record 缺失时按当前私聊投影首建；`/mode` 不改 provider/profile，provider/profile、prompt 与 plan 命令也不能整记录覆盖其它字段
+- 同 gateway 已 materialize 的私聊和群聊 surface 都消费该 record；surface 同名字段只作为当前执行、restart、dispatch 和 route-derived snapshot 转换所需的投影
+- `surface resume state` 只恢复 surface route/context 和能力执行 hint；bot store materialize 或 ingress 会重新投影 canonical record，resume entry 不能反向成为 bot 设置写源
+- Claude `workspace+profile` snapshot 只保存和恢复其显式定义的 reasoning/access route-derived 值；已有 bot record 时通过 lifecycle 字段事务写回，不能覆盖 backend/provider/profile；record 缺失时只更新当前 surface 的 route-derived 执行状态，不能从群聊或生命周期路径首建整条 record
+- record 同时保留 Codex provider 与 Claude profile 的已选值；active backend contract 只暴露当前一侧，切换 backend 不删除非活动选择
+- canonical lookup 明确区分 not-applicable / absent / valid / invalid：只有 absent 可按既定语义使用本地 route-derived 状态；已存在但无法规范化或 map key 与 record gateway 不一致时进入 invalid gate，读、写与 dispatch 全部 fail closed，不降级为 surface 本地值。非法 identity、surface/gateway 不匹配和非 Feishu surface 则属于 not-applicable，继续保持明确的本地 owner 语义
+- daemon 普通 action 收尾会同步 bot store；agent event 中唯一会改该 record 的 `request.resolved(plan_confirmation + accept)` 也在事件批末走同一 durable sync，不把高频 delta 事件带进持久化热点
 
 ### 4.4.1 `internal/core/workspaceimport`
 

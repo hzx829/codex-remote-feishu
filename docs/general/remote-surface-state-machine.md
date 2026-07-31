@@ -8,7 +8,7 @@
 > 3. detached `/use`、headless exact-thread restore、workspace attach、startup resume、`/mode` backend switch、`/claudeprofile`、`/codexprovider` 现在都会统一先判定 `attach visible compatible / reuse managed compatible / restart managed incompatible / fresh-start matching headless / reject`，而不是各自维护平行 continuation；
 > 4. headless restore 不再把 visible VS Code 或 visible external mismatch 误当成 exact-thread auto-restore 目标；手动 `attach workspace` 也不再 silent 接管 profile/provider mismatch 的实例。
 > 5. Claude managed headless 的 exact-thread restore 现在额外要求“目标 session 的 cwd 仍属于该 instance 当前 workspace”才允许原地复用；跨 workspace 旧 session 会改走 restart/fresh-start，不再把当前 attached Claude instance 的 metadata 直接 silent retarget 到别的目录。
-> `claude <-> codex` 的 headless backend 互切现在统一锚定当前工作区目录：只要切换前已有当前 workspace，surface 就会保留这份 workspace claim，并优先 attach 目标 backend 下同 workspace 的兼容在线实例；若只剩 incompatible managed headless，则会 restart 成匹配合同；若没有兼容实例，则会 fresh-start matching managed headless，并保留原来的 unbound / new-thread-ready / exact-thread continuation 意图。进入 Claude workspace 时，surface 会按 `workspace+profile` 快照恢复飞书临时 `reasoning / access` override；`plan` 不写入也不恢复这套快照，surface resume 也不跨 daemon 恢复 `PlanMode`，而 `/status` 会把“最近观察到的当前会话权限/模式”和“下条飞书消息的实际 override”分开投影。2026-05-02 的新变化是：Claude headless 的 `/reasoning` 也正式并入 headless launch contract，queue item / auto-continue / review apply 都会冻结各自目标 reasoning；真正 dispatch 前统一比较 `desired launch contract` 与 wrapper hello 上报的 observed runtime contract，若不一致则进入 `PendingHeadless(Purpose=prompt_dispatch_restart)`，由 daemon 显式 `kill + start headless`，实例重新 attach 后再自动继续原 dispatch。`/access` 与 `/plan` 仍保留动态 permission-mode 通道，不被并入这条 restart-only 合同；其中显式 `/access` override 还会额外写入 `workspace+profile` 快照，而 `plan` 不会。Codex provider 切换也已并入同一条 surface 级 headless 重启主链，切换时会沿用与 Claude profile 相同的 request-gate / busy-gate / current-workspace continuation 规则；idle detached 只改当前 surface 的 provider，workspace 内切换则会直接重启或 fresh-start 当前工作区。其余能力仍保持此前基线：headless 的被动恢复入口（attach unbound、`selected_thread_lost`、`thread_claim_lost`）统一回到“锁定当前工作区”的 target picker，不再回退旧 scoped selection prompt；VS Code `/list` / `/use` / `/useall` 继续走结构化实例/线程卡，其中线程选择统一成当前实例内的 dropdown，并隐藏不可切换会话、改用 plain-text 提示说明。surface-level backend seam 也已正式落成真实状态：headless 下区分 `codex` / `claude` 两个 backend，workspace defaults、surface resume 与 detached catalog context 都按 backend 分区，`/mode` 的底层语义收口成 `codex|claude|vscode`，其中 `normal` 仍作为 `codex` 的兼容 alias。另一个新变化是把上游 runtime 问题自动继续从 `autowhip` 中拆成独立 `autocontinue` overlay：它由 orchestrator 本地 codex/gateway error-family policy 驱动，拥有自己的 queue lane、reply anchor、tail-only 状态卡与 backoff，不再和“正常结束后继续催活”混用；request gate 现在还补上了 `item/tool/call` 的最小 fail-closed 分支：relay / Feishu / headless 会展示只读 `tool_callback` 提示，并立即自动回写 unsupported 结构化结果，避免 tool 在中途 silent hang；同时 detached-branch 产品入口已经正式接上：普通文本里的 `[什么？]` / `[耸肩摊手]` 会分别触发 `fork_ephemeral` / `start_ephemeral`，统一复用 `keep_surface_selection`，且不会再让 detour turn 污染当前 surface 默认 thread；review mode 的 detached review session 也已接入同一条远端状态机：review thread 会带显式 `source=review` / parent-thread 元数据，surface 会在不改绑当前选中 thread 的前提下记录 `ReviewSession` runtime，并把后续审阅文本继续路由到 review thread；与此同时，普通 attach/list/use 候选现在会显式排除 `source=review` 会话，不再把 detached review thread 混进 merged thread list、current-instance dropdown 或 workspace recency。本轮还把 `process.child.restart` 收口成“两段式 restart 合同”：`ack` 只代表新 child 已接管，thread restore 结果改由独立 outcome event 回传，daemon 会对 `/bendtomywill` 与 standalone Codex upgrade 统一等待最终 outcome，因此 late restore 不会再把 patch / upgrade 误判成已失败或已完成。2026-05-06 的补充是：Claude wrapper 在“当前 child 已经 `--resume` 到某个旧 session”时，如果 surface 明确要求 `PromptExecutionMode=start_new + threadID=""`，会先把 child 重启成 fresh launch，再清掉旧的 expected-resume 影子状态，确保 `/new` 的首条消息不会重新落回被恢复的旧 Claude session。同一轮里，remote-surface 的 execution lifecycle 也已明确拆成两个 sibling seam：dispatch core 统一 owner `DispatchMode / ActiveQueueItemID / QueuedQueueItemIDs / pendingRemote / activeRemote`，recovery core 统一 owner `PendingHeadless / headless attach-fail-expire / disconnect-degraded-timeout teardown`；`prompt_dispatch_restart` 只保留显式 handshake，不再让 queue/recovery 在业务路径里平行散写同一批 carrier。注意：2026-04-29 新拍板的下一轮 Claude MVP 产品边界不再由本文定义，而改以 [Claude Backend Integration Plan](../inprogress/claude-backend-integration-plan.md) 第 `7.6` / `12.1` 节为准；本文仍只记录当前 live 实现。
+> `claude <-> codex` 的 headless backend 互切现在统一锚定当前工作区目录：只要切换前已有当前 workspace，surface 就会保留这份 workspace claim，并优先 attach 目标 backend 下同 workspace 的兼容在线实例；若只剩 incompatible managed headless，则会 restart 成匹配合同；若没有兼容实例，则会 fresh-start matching managed headless，并保留原来的 unbound / new-thread-ready / exact-thread continuation 意图。进入 Claude workspace 时，surface 会按 `workspace+profile` 快照恢复飞书临时 `reasoning / access` override；`plan` 不写入也不恢复这套快照，surface resume 也不跨 daemon 恢复 `PlanMode`，而 `/status` 会把“最近观察到的当前会话权限/模式”和“下条飞书消息的实际 override”分开投影。2026-05-02 的新变化是：Claude headless 的 `/reasoning` 也正式并入 headless launch contract，queue item / auto-continue / review apply 都会冻结各自目标 reasoning；真正 dispatch 前统一比较 `desired launch contract` 与 wrapper hello 上报的 observed runtime contract，若不一致则进入 `PendingHeadless(Purpose=prompt_dispatch_restart)`，由 daemon 显式 `kill + start headless`，实例重新 attach 后再自动继续原 dispatch。`/access` 与 `/plan` 仍保留动态 permission-mode 通道，不被并入这条 restart-only 合同；其中显式 `/access` override 还会额外写入 `workspace+profile` 快照，而 `plan` 不会。Codex provider 切换也已并入同一条 surface 级 headless 重启主链，切换时会沿用与 Claude profile 相同的 request-gate / busy-gate / current-workspace continuation 规则；idle detached 更新 bot record 并投影同 gateway surface，workspace 内则由发起 surface 直接重启或 fresh-start 当前工作区。其余能力仍保持此前基线：headless 的被动恢复入口（attach unbound、`selected_thread_lost`、`thread_claim_lost`）统一回到“锁定当前工作区”的 target picker，不再回退旧 scoped selection prompt；VS Code `/list` / `/use` / `/useall` 继续走结构化实例/线程卡，其中线程选择统一成当前实例内的 dropdown，并隐藏不可切换会话、改用 plain-text 提示说明。surface-level backend seam 也已正式落成真实状态：headless 下区分 `codex` / `claude` 两个 backend，workspace defaults、surface resume 与 detached catalog context 都按 backend 分区，`/mode` 的底层语义收口成 `codex|claude|vscode`，其中 `normal` 仍作为 `codex` 的兼容 alias。另一个新变化是把上游 runtime 问题自动继续从 `autowhip` 中拆成独立 `autocontinue` overlay：它由 orchestrator 本地 codex/gateway error-family policy 驱动，拥有自己的 queue lane、reply anchor、tail-only 状态卡与 backoff，不再和“正常结束后继续催活”混用；request gate 现在还补上了 `item/tool/call` 的最小 fail-closed 分支：relay / Feishu / headless 会展示只读 `tool_callback` 提示，并立即自动回写 unsupported 结构化结果，避免 tool 在中途 silent hang；同时 detached-branch 产品入口已经正式接上：普通文本里的 `[什么？]` / `[耸肩摊手]` 会分别触发 `fork_ephemeral` / `start_ephemeral`，统一复用 `keep_surface_selection`，且不会再让 detour turn 污染当前 surface 默认 thread；review mode 的 detached review session 也已接入同一条远端状态机：review thread 会带显式 `source=review` / parent-thread 元数据，surface 会在不改绑当前选中 thread 的前提下记录 `ReviewSession` runtime，并把后续审阅文本继续路由到 review thread；与此同时，普通 attach/list/use 候选现在会显式排除 `source=review` 会话，不再把 detached review thread 混进 merged thread list、current-instance dropdown 或 workspace recency。本轮还把 `process.child.restart` 收口成“两段式 restart 合同”：`ack` 只代表新 child 已接管，thread restore 结果改由独立 outcome event 回传，daemon 会对 `/bendtomywill` 与 standalone Codex upgrade 统一等待最终 outcome，因此 late restore 不会再把 patch / upgrade 误判成已失败或已完成。2026-05-06 的补充是：Claude wrapper 在“当前 child 已经 `--resume` 到某个旧 session”时，如果 surface 明确要求 `PromptExecutionMode=start_new + threadID=""`，会先把 child 重启成 fresh launch，再清掉旧的 expected-resume 影子状态，确保 `/new` 的首条消息不会重新落回被恢复的旧 Claude session。同一轮里，remote-surface 的 execution lifecycle 也已明确拆成两个 sibling seam：dispatch core 统一 owner `DispatchMode / ActiveQueueItemID / QueuedQueueItemIDs / pendingRemote / activeRemote`，recovery core 统一 owner `PendingHeadless / headless attach-fail-expire / disconnect-degraded-timeout teardown`；`prompt_dispatch_restart` 只保留显式 handshake，不再让 queue/recovery 在业务路径里平行散写同一批 carrier。注意：2026-04-29 新拍板的下一轮 Claude MVP 产品边界不再由本文定义，而改以 [Claude Backend Integration Plan](../inprogress/claude-backend-integration-plan.md) 第 `7.6` / `12.1` 节为准；本文仍只记录当前 live 实现。
 
 ## 1. 文档定位
 
@@ -124,8 +124,9 @@ Feishu 群聊 surface 之上现在还有一层 room context coordination record�
 12. instance claim 与 thread claim 仍是 surface 级全局独占，同 room 不共享实例或会话。
 13. room context 的 `ActiveLock` 是同 room workspace 执行互斥的 SSOT：dispatching 时写入 surface / instance / thread / turn / queue item evidence，turn started 后用真实 thread/turn 刷新；普通 queue、未 attached 群 surface 的 room-workspace 文本自动接管、AutoContinue 与 AutoWhip 在派发前若发现其它 same-room surface 仍有 dispatching/running item 或 instance active turn，会保留当前 queued/pending 状态并返回 `room_workspace_active` notice；AutoContinue / AutoWhip 这类 tick 驱动入口会对该 notice 做短冷却，避免同一 active holder 持续刷屏。
 14. stale `ActiveLock` 不单独造成永久 busy：若锁指向的 surface 不存在或已无可证明 active work，下一次 same-room dispatch 检查会清掉并继续；room workspace reset 也会清掉 room active lock。
-15. 群聊 surface 的 effective capability settings 读取 gateway/bot 级 `BotCapabilitySettings`：`/mode`、provider/profile、model/reasoning/access/plan 这些 bot 能力默认值由私聊命令写入独立持久化 store；群聊 dispatch、headless launch contract 与 catalog context 使用该设置作为能力默认。群聊菜单会隐藏这些 bot 能力设置入口，手输或卡片回调尝试修改时返回 `bot_capability_private_required` 或同卡错误提示；群 surface 自身仍保存 workspace/session/queue/staged input/AutoWhip/AutoContinue 等 context runtime，不能把某个私聊 surface resume entry 当作机器人全局 SSOT。
-16. room context 还持有群级 `PrimaryGatewayID`，作为“无 @ 普通消息由哪个 bot 承接”的 SSOT；持久化只保存 room/chat/primary/meta durable 字段，`ActiveLock`、gateway evidence、surface evidence 仍只属于运行时状态。
+15. 合法四段式 Feishu 私聊和群聊 surface 的 effective capability settings 都读取 gateway/bot 级 `BotCapabilitySettings`。`/mode`、provider/profile、model/reasoning/access/plan 只允许私聊修改；每个命令从最新 gateway record 开始，只更新自己拥有的字段，再把结果投影到同 gateway 已 materialize 的 surface，且只有合法私聊配置事务可以在 record 缺失时首建。plan confirmation 与 Claude workspace snapshot 等运行生命周期转换只能字段级更新已有 record；record 缺失时保留当前 surface 的 route-derived 执行状态，不能从群聊或生命周期路径反向整记录初始化 SSOT。旧私聊 surface 和 surface resume entry 同样不能整记录回写。record 同时保存 Codex provider 与 Claude profile 的非活动选择，active backend contract 只暴露当前一侧；非法 identity、gateway 不匹配或非 Feishu surface 保持本地设置语义。群聊 dispatch、headless launch contract 与 catalog context 使用 bot record 作为能力默认；群聊菜单隐藏这些入口，手输或卡片回调尝试修改时返回 `bot_capability_private_required` 或同卡错误提示。群 surface 自身仍保存 workspace/session/queue/staged input/AutoWhip/AutoContinue 等 context runtime。
+16. bot capability lookup 明确区分 not-applicable / absent / valid / invalid：只有 absent 会按既定 lifecycle 语义暂用当前 surface 的 route-derived 状态；若 map 中已有 record 但无法规范化，或 storage key 与 record gateway 不一致，则进入 `BotCapabilitySettingsInvalid` gate，effective read 不回退 raw surface，配置、route lifecycle、queue 与 AutoContinue dispatch 都 fail closed。正常 store materialize 与字段级 transaction 不会产生该状态；异常时仍允许 `/stop`、`/detach` 与 `/workspace detach` 释放资源，修复持久化状态并重启后可恢复。
+17. room context 还持有群级 `PrimaryGatewayID`，作为“无 @ 普通消息由哪个 bot 承接”的 SSOT；持久化只保存 room/chat/primary/meta durable 字段，`ActiveLock`、gateway evidence、surface evidence 仍只属于运行时状态。
 
 ### 2.3 飞书私聊 surface identity 当前依赖 preferred actor id
 
@@ -159,12 +160,13 @@ surface 不是单一枚举，而是五层正交状态叠加。
 
 补充说明：
 
-1. `ProductMode` 与 `Backend` 当前都是 surface 级字段；`/detach` 不会清掉它们。
-2. `ProductMode` / `Backend` 当前已经进入 daemon 级 `surface resume state`：
-   1. 进程内已有 surface 会保留它。
-   2. daemon 重启后，startup 会先从 `surface resume state` materialize latent surface，并恢复之前的 `ProductMode` / `Backend`。
-   3. `surface resume state` 当前不仅记录 `ProductMode` / `Backend` / `ClaudeProfileID` / `Verbosity` / instance / thread / workspace / route，还会记录 headless thread restore 所需的 thread title / thread cwd / `ResumeHeadless` 标记；它已经是唯一持久化恢复源，但不再持久化或恢复 `PlanMode`。其中 `ResumeWorkspaceKey` 表示稳定 workspace root，`ResumeThreadCWD` 表示最近活跃 cwd；当 headless entry 的 workspace 不是 CWD 的祖先时，前者属于过期 surface context，load/save canonicalization 会改正为 CWD，避免跨仓库恢复。这里的 `ResumeHeadless` 现在只代表“恢复一个 concrete headless thread”，不再复用来表示 `fresh workspace prepare`。旧 entry 缺失 `Backend` 时会 lazy 默认成 `codex`；若 backend 是 `claude` 且 entry 缺失 profile，则会 lazy 默认成内置 `default`；若旧 entry 带着非空 `ClaudeProfileID`，load/save canonicalization 会反向把 headless backend 纠正回 `claude`，避免把 Claude exact-thread 恢复目标误投到 Codex 路由；若旧 entry 误把 `pending fresh workspace` 写成 `ResumeHeadless=true + ResumeRouteMode=pinned + ResumeThreadID=\"\"`，load 时会自动迁回 workspace-owned `new_thread_ready` 语义。
-   4. headless surface（当前 persisted token 仍是 `ProductMode=normal`）随后会按 persisted resume target 继续尝试恢复：
+1. 对合法 Feishu surface，`ProductMode` / `Backend` / provider/profile / prompt override / plan override 的业务事实属于 gateway 级 `BotCapabilitySettings`；surface 上的同名字段只是当前 action、restart、dispatch 和快照转换需要的执行投影。非 Feishu 或非 canonical identity surface 仍以本地字段为 owner；`/detach` 不清掉当前能力投影。
+2. daemon 级 `surface resume state` 负责恢复 surface 路由和执行上下文，不是 Feishu bot capability 的第二写源：
+   1. 进程内已有 Feishu surface 会在 bot record 更新、bot store materialize、surface resume materialize 和下一次 ingress 时刷新能力投影。
+   2. daemon 重启后，startup 可以先从 `surface resume state` materialize latent surface，但 bot capability store materialize 后会以 gateway record 覆盖其能力投影。
+   3. `surface resume state` 当前仍携带 `ProductMode` / `Backend` / `ClaudeProfileID` 作为 latent route materialize 的执行 hint，并记录 `Verbosity` / instance / thread / workspace / route 及 headless thread restore 所需的 thread title / thread cwd / `ResumeHeadless` 标记；它不是 Feishu bot capability 的持久化 owner，也不再持久化或恢复 `PlanMode`。合法 Feishu surface 在 bot store materialize 后必须由 gateway record 覆盖前三项能力投影。其中 `ResumeWorkspaceKey` 表示稳定 workspace root，`ResumeThreadCWD` 表示最近活跃 cwd；当 headless entry 的 workspace 不是 CWD 的祖先时，前者属于过期 surface context，load/save canonicalization 会改正为 CWD，避免跨仓库恢复。这里的 `ResumeHeadless` 现在只代表“恢复一个 concrete headless thread”，不再复用来表示 `fresh workspace prepare`。旧 entry 缺失 `Backend` 时会 lazy 默认成 `codex`；若 backend 是 `claude` 且 entry 缺失 profile，则会 lazy 默认成内置 `default`；若旧 entry 带着非空 `ClaudeProfileID`，load/save canonicalization 会反向把 headless backend 纠正回 `claude`，避免把 Claude exact-thread 恢复目标误投到 Codex 路由；若旧 entry 误把 `pending fresh workspace` 写成 `ResumeHeadless=true + ResumeRouteMode=pinned + ResumeThreadID=\"\"`，load 时会自动迁回 workspace-owned `new_thread_ready` 语义。
+   4. 对合法 Feishu surface，resume entry 里的能力字段只作为 materialize 顺序中的执行 hint；gateway 级 bot capability record 载入后必须覆盖这些投影，且 resume entry 不能反向写回 record。
+   5. headless surface（当前 persisted token 仍是 `ProductMode=normal`）随后会按 persisted resume target 继续尝试恢复：
       1. 优先 exact visible thread 恢复。
       2. 只允许消费同 backend 的 visible instance / workspace；不会再把 `codex` 的 headless resume target 恢复到 `claude`，反之亦然。managed headless 的复用候选也会先按 backend 过滤，attach / resume 路径若发现 thread view 与目标实例 backend 不一致，会直接拒绝这次恢复绑定，而不是把错配状态继续写回 surface resume。
       3. visible 与 compatibility 当前明确拆层：visible mismatch 目标仍然保留在 `/list`、`/use`、workspace recency、target picker 的候选里，但 exact-thread restore、workspace resume、backend switch、profile/provider switch 不会再把它们当成“可直接接管”的目标。解析核会统一先判定 `attach compatible visible -> reuse compatible managed headless -> restart incompatible managed headless -> fresh-start matching headless -> reject`。其中 Claude managed headless 只有在目标 session `cwd` 仍属于该 instance 当前 workspace 时才允许走 `reuse managed`；若目标 session 已经跨到别的 workspace，则必须 restart/fresh-start，不能继续 silent retarget 当前 attached Claude instance。
@@ -209,22 +211,22 @@ surface 不是单一枚举，而是五层正交状态叠加。
    1. `/verbose quiet|normal|verbose|chatty` 直接改当前 surface。
    2. `/detach` 不会清掉它。
    3. daemon 重启后，latent surface 会从 `surface resume state` 恢复之前的 `Verbosity`。
-8. `PlanMode` 当前在私聊体验上仍表现为当前 surface 的偏好，但群聊 effective dispatch 会读取 gateway/bot 级 `BotCapabilitySettings` 里的 plan override；headless 与 `vscode` 的下发语义不同：
-   1. `/plan on|off` 直接改当前 surface，只影响后续新 turn；`/plan clear` 会清掉显式 plan 覆盖并把 surface 投影恢复成 `off`。
+8. 合法 Feishu surface 的 `PlanMode` 业务事实位于 gateway/bot 级 `BotCapabilitySettings`；私聊与群聊都读取该 record，非 canonical surface 才保留本地偏好。headless 与 `vscode` 的下发语义不同：
+   1. 私聊 `/plan on|off` 对最新 bot record 做 plan 字段事务，只影响后续新 turn；`/plan clear` 会清掉显式 plan 覆盖并把同 gateway surface 投影恢复成 `off`。群聊不能直接执行这些配置命令，但提案计划执行和已确认的 Claude `ExitPlanMode` 属于运行生命周期转移：record 已存在时通过 lifecycle 字段事务更新 plan，record 缺失时只更新当前 surface 的 route-derived 状态，不拥有首建权。
    2. 当前 running turn、已入队消息、当前 turn 的 `/steer` 与 reply auto-steer 都不受新设置追溯改写。
    3. headless 主链的 queue item 会在入队时冻结 `PlanMode`，dispatch `turn/start` 时再把它落到 `PromptOverrides.PlanMode -> collaborationMode.mode=plan/default`。
    4. `vscode` 主链属于 shared-authority：只有用户显式 `/plan on|off` 后才会冻结 `PlanMode`；若未设置或已 `/plan clear`，queue item 的 `FrozenPlanMode` 保持 empty，dispatch 时不下发 plan override，让 VS Code/backend 保持当前状态。
-   5. `/detach`、`/new`、`/use`、`/mode normal|codex|claude|vscode` 不会顺手清掉当前内存里的 `PlanMode`；daemon 重启后，latent surface 不再从 `surface resume state` 恢复 `PlanMode`，旧持久化 entry 里的 `planMode` 会被忽略并在下一次保存时清理。
+   5. `/detach`、`/new`、`/use`、`/mode normal|codex|claude|vscode` 不会顺手清掉 bot record 里的 `PlanMode`；daemon 重启后，latent surface 不从 `surface resume state` 恢复 `PlanMode`，而由 bot capability store 重新投影，旧 surface resume entry 里的 `planMode` 会被忽略并在下一次保存时清理。
    6. 在 `claude` 模式下，`PlanMode` 也不进入 `workspace+profile` 快照：
-      1. 进入某个 Claude workspace 时，会按 `workspace + ClaudeProfileID` 恢复最近一次飞书临时 `ReasoningEffort / AccessMode` 覆盖。
+      1. 进入某个 Claude workspace 时，会按 `workspace + ClaudeProfileID` 恢复最近一次飞书临时 `ReasoningEffort / AccessMode` 覆盖；已有 bot record 时结果经 lifecycle 字段事务写回并投影到同 gateway surface，无 record 时只保留为当前 surface 的 route-derived 执行状态。
       2. 离开该 workspace 或切走该 profile 前，会把当前显式 `ReasoningEffort / AccessMode` 覆盖写回独立的 `workspace+profile` 持久化 store。
       3. 若目标 `workspace+profile` 没有快照，则会恢复成空 override + `PlanMode=off`，不会沿用别的 workspace/profile 残留值。
       4. `Model` 与 `PlanMode` 明确不在这套快照里；Claude workspace/profile 恢复时会主动清掉这些临时运行态，不把它们当作可持久化热改能力。
-   7. Claude `ExitPlanMode` 被批准后，本地 surface 不会在“用户点了批准”时立刻清掉 `PlanMode`；只有等到对应 `request.resolved(plan_confirmation + accept)` 真正到达，才会同步清理显式 plan override。`decline` / `revise` / cancel / 过期都不会误清。
+   7. Claude `ExitPlanMode` 被批准后，不会在“用户点了批准”时立刻清掉 bot record 的 `PlanMode`；只有等到对应 `request.resolved(plan_confirmation + accept)` 真正到达，才会通过生命周期字段事务清理显式 plan override。`decline` / `revise` / cancel / 过期都不会误清。
    8. 若某轮 turn 结束时存在 completed plan item text（或仅作为兼容兜底的 `item/plan/delta` 草稿），surface 会在 final 落完后追加一张“提案计划”手动 handoff 卡；completed item text 优先于 delta 草稿。这张卡不是 request gate，不阻塞后续输入，但命中新的输入、route 变化、turn 变化或用户显式点击动作后都会 seal。
       对 `keep_surface_selection` 的 detached-branch turn，这张卡仍回原 surface，并按 source/main thread 判断是否 suppress，不会因为 execution thread 不同而被误吞。
-   9. 点击提案计划卡的 `直接执行` / `清空上下文并执行`，会先把当前 surface 的 `PlanMode` 切回显式 `off`，再继续派发 follow-up turn；`取消` 只 seal 卡片，不改 route。
-9. `PromptOverride` 当前承载飞书侧显式 model / reasoning / access requested override；私聊写入时会同步 gateway/bot 级 `BotCapabilitySettings`，群聊 effective prompt summary、queue freeze 与 headless launch 使用该 bot 级 override：
+   9. 点击提案计划卡的 `直接执行` / `清空上下文并执行`，会先把 gateway bot record 的 `PlanMode` 切回显式 `off`，再继续派发 follow-up turn；`取消` 只 seal 卡片，不改 route。
+9. `PromptOverride` 当前承载飞书侧显式 model / reasoning / access requested override；合法私聊命令从最新 gateway/bot 级 `BotCapabilitySettings` 开始只更新对应字段，群聊 effective prompt summary、queue freeze 与 headless launch 使用同一 bot 级 override：
    1. headless Codex 主链的 queue item 仍会冻结最终 effective model / access；reasoning 只冻结用户显式 override，空 `ReasoningEffort` 表示自动，不再把 backend 全局默认 `xhigh`、thread observed/base reasoning 或动态目录里的 `defaultReasoningEffort` 当成要下发的 prompt override。
    2. Codex `/model` 与 `/reasoning` 会优先按当前 instance-scoped `model.list` 目录校验 `model + reasoning` tuple：已知不支持时普通命令拒绝，已知模型切换时清掉不兼容的旧 reasoning override；未知模型、目录不可用或模型未声明 efforts 时只提示无法本地校验，保留高级手输能力。
    3. Codex queue dispatch 与 auto-continue dispatch 在真正生成 `prompt.send` 前会再次检查 frozen `model + reasoning`；若目录可判定不兼容，会清空这次 command 的 reasoning override，保留 model/access，并追加 `prompt_override_reasoning_dropped` 全局 runtime notice。该 notice 使用 `prompt_override_guard` family 和 dedupe key，避免同一不兼容组合连续刷屏。
@@ -452,6 +454,7 @@ review mode 第一版当前不是新的 route state，而是挂在 surface 上�
 | `G9 UpgradeOwnerFlowRunning` | daemon 侧 active upgrade owner-flow 处于 `running` / `cancelling` / `restarting` | 这是 daemon 顶层的独立升级 gate；只允许 `/status`、`/upgrade`、`/debug`、reaction/recall 与同一张升级卡自身动作继续，其它 competing 输入会被拒绝 |
 | `G10 StandaloneCodexUpgradeRunning` | daemon 侧 active standalone Codex upgrade transaction 非空 | 这是 daemon 顶层的独立 upgrade gate，不复用现有 `codex-remote` owner-flow。发起 surface 的普通输入会被直接挡住；其它真正依赖 standalone Codex 的 attached surface 会继续走“写入队列 + notice + `paused_for_local`”语义；VS Code surface / instance 当前完全排除在这条 gate 之外；非 queueable 命令/卡片动作当前仍直接拒绝。事务只有在 install 完成、child restart `ack` 已确认、且匹配的 restore outcome 成功/失败/超时收口后才会退出，不会在 bare restart ack 后提前解 gate |
 | `G11 TurnPatchTransactionRunning` | daemon 侧存在当前 instance 的 active turn-patch transaction | 发起 surface 与同 instance 上其它 attached surface 的状态改写类输入都会被挡住；当前只保留 `/status`、`/list`、`/help`、`/menu`、`/history`、`/debug`、reaction/recall 等查看类动作，直到 patch apply / rollback 收口。事务只会在 rollout 写盘后对应的 child restart 最终 outcome 成功，或在失败/超时后自动回滚并完成恢复 restart 收口后退出 |
+| `G12 BotCapabilitySettingsInvalid` | 合法 Feishu surface 对应的 gateway record 已存在，但 record 无法规范化或 storage key 与 record gateway 不一致 | capability effective read、配置与 lifecycle mutation、普通 action、queue 和 AutoContinue dispatch 全部 fail closed，不回退 raw surface；只保留 `/stop`、`/detach` 与 `/workspace detach` 释放执行和 route 资源。详细节流与恢复规则见 6.2 覆盖门禁 |
 
 补充说明：
 
@@ -687,17 +690,17 @@ review mode 第一版当前不是新的 route state，而是挂在 surface 上�
    1. 优先 attach 同 workspace 的在线 Claude instance。
    2. 若当前没有可 attach 的 Claude instance，则直接起 fresh managed headless，并把该 workspace 记成 `PendingHeadless.ThreadCWD`。
 5. Claude runtime 只有在目标 thread 能解析成“当前 workspace 下真实可恢复的 Claude session”时，才会为了 `prompt.send` 触发内部 child restart；普通新会话的目标 thread 壳值不会误判成 session switch。若当前 child 正处于一个通过 `--resume` 恢复出来的旧 session，而 surface 显式要求 `PromptExecutionMode=start_new + threadID=""`，wrapper 会先 fresh-restart child，并同步清掉旧的 expected-resume 影子状态，保证 `/new` 首条消息真正创建新 Claude session，而不是被旧 session 吞回去。
-6. `/claudeprofile` 当前是 Claude headless 专属的 surface 级切换入口：
+6. `/claudeprofile` 当前是 Claude headless 专属的 gateway/bot 级配置入口，只允许在私聊发起；当前 surface 负责承接切换后的 route 清理与重启：
    1. bare `/claudeprofile` 会打开 dropdown 参数卡，候选固定为内置 `default` 加当前持久化 profile 列表。
    2. 只有 `ProductMode=normal && Backend=claude` 时允许切换；其他 mode/backend 会直接拒绝并要求先 `/mode claude`。
    3. request gate、`PendingHeadless`、live remote work 与 delayed-detach 当前都会阻断 profile 切换，不会让 surface 进入半重启状态。
-   4. detached idle surface 切 profile 时，只会替换 `ClaudeProfileID`，并清空当前 surface 的临时 `PlanMode / PromptOverride`，不会偷偷沿用旧 profile 的残留值。
+   4. detached idle 私聊切 profile 时，canonical bot transaction 只更新 record 的 `ClaudeProfileID`，保留其它私聊最新写入的 `PlanMode / PromptOverride`；结果投影到同 gateway surface，不从发起 surface 整记录覆盖其它字段。只有不使用 bot capability record 的 non-canonical local surface 会在没有当前 workspace 时沿用本地 `PlanMode / PromptOverride` reset，这条 local cleanup 不会写入 gateway record。
    5. 当前 workspace 已占用时，切 profile 会先 detach-like 清理旧 runtime，再按目标 `workspace+profile` 快照恢复飞书临时 `ReasoningEffort / AccessMode` override，并把 `PlanMode` 归零、`Model` 清空；随后按切换前的 continuation intent 直接 fresh-restart 到新 profile：原来只是 workspace-owned `unbound/new_thread_ready` 时继续走 fresh workspace prepare；原来已经 pinned 到某个 Claude thread 时，会保留该 exact-thread 恢复目标并直接拉起新的 thread-restore headless，而不会要求用户重新 `/use`。
    6. 若切换前当前 surface 接着的正是一个 Claude managed headless，切 profile 时还会先显式 kill 旧 child，再启动新 profile 对应的 child，避免 surface 被错误地重新 attach 回“旧 profile 但同 workspace”的在线实例。
-7. `ClaudeProfileID` 当前也是 surface runtime carrier：
-   1. 若 surface 当前已持有某个 profile，`/mode claude`、workspace attach、visible resume 与 fresh/preselected headless launch 都会继续沿用它。
-   2. 若 surface 还没有显式 profile，而 backend 已切到 `claude`，则会 lazy 默认成内置 `default`。
-   3. daemon 重启后，latent surface 会从 `surface resume state` 恢复之前的 `ClaudeProfileID`，因此后续 Claude workspace 恢复不会退回“只记 backend、不记 profile”。
+7. `ClaudeProfileID` 的业务 owner 是 gateway/bot record，surface 同名字段只是 runtime projection：
+   1. `/mode claude`、workspace attach、visible resume 与 fresh/preselected headless launch 都读取 effective bot contract，并把 profile 投影冻结到当前执行合同。
+   2. bot record 的 Claude profile 为空时会规范化为内置 `default`；切到其它 backend 时仍保留这份非活动选择。
+   3. daemon 重启时 `surface resume state` 里的 `ClaudeProfileID` 只用于 latent route materialize 的执行 hint；bot capability store 随后覆盖合法 Feishu surface 的能力投影，resume entry 不能反向写回或成为第二 owner。
 8. daemon 在 fresh/preselected headless launch 时，会只消费 orchestrator 已冻结下来的 headless launch contract：
    1. `PendingHeadless` 与 `DaemonCommandStartHeadless` 当前都会显式携带 `Backend / CodexProviderID / ClaudeProfileID`；若 frozen backend 是 `claude`，还会额外带 `ClaudeReasoningEffort`。
    2. daemon 不再在真正启动时回读 live surface backend；若 `headless.start` 命令本身缺少 frozen backend contract，会直接按启动失败收口，而不是再隐式借值。
@@ -712,11 +715,11 @@ review mode 第一版当前不是新的 route state，而是挂在 surface 上�
    6. 新实例连回后只做最小 reattach，不会重置 queue、review session 或 auto-continue runtime；统一 dispatch owner 会继续把原始 prompt 发出去。
    7. `/access` 与 `/plan` 仍保留动态 permission-mode 通道，不并入这条 restart-only 合同。
    8. `/model` 在 Claude 模式下 hidden + reject；Claude 模型只来自 profile 注入，Codex 默认模型与模型覆盖不会投影成 Claude prompt 配置。
-11. `/codexprovider` 当前是 Codex headless 专属的 surface 级切换入口：
+11. `/codexprovider` 当前是 Codex headless 专属的 gateway/bot 级配置入口，只允许在私聊发起；当前 surface 负责承接切换后的 route 清理与重启：
    1. bare `/codexprovider` 会打开 dropdown 参数卡，候选固定为内置 `default` 加当前持久化 provider 列表。
    2. 只有 `ProductMode=normal && Backend=codex` 时允许切换；其他 mode/backend 会直接拒绝并要求先 `/mode codex`。
    3. request gate、`PendingHeadless`、live remote work 与 delayed-detach 当前都会阻断 provider 切换，不会让 surface 进入半重启状态。
-   4. detached idle surface 切 provider 时，只会替换 `CodexProviderID`，不会偷偷改写其他 surface 参数。
+   4. detached idle 私聊切 provider 时，只更新 bot record 的 `CodexProviderID`；结果投影到同 gateway surface，但不会从发起 surface 整记录覆盖其它参数。
    5. 当前 workspace 已占用时，切 provider 会先 detach-like 清理旧 runtime，再按切换前的 continuation intent 直接 fresh-restart 到新 provider：原来只是 workspace-owned `unbound/new_thread_ready` 时继续走 fresh workspace prepare；原来已经 pinned 到某个 Codex thread 时，会保留该 exact-thread 恢复目标并直接拉起新的 thread-restore headless，而不会要求用户重新 `/use`。
    6. 若切换前当前 surface 接着的正是一个 Codex managed headless，切 provider 时还会先显式 kill 旧 child，再启动新 provider 对应的 child，避免 surface 被错误地重新 attach 回“旧 provider 但同 workspace”的在线实例。
 
@@ -981,7 +984,7 @@ review mode 第一版当前不是新的 route state，而是挂在 surface 上�
 9. autoContinue 当前是 idle、等待自动继续，还是刚刚失败/取消。
 10. attachment 还在不在，以及当前是不是在等实例恢复。
 
-### 4.12 `/mode` 是 surface 级 overlay，当前只负责记忆与清理切换
+### 4.12 `/mode` 更新 gateway/bot 能力合同，当前 surface 承接 route 清理与切换
 
 当前 `/mode` 的实现边界已经固定为：
 
@@ -990,8 +993,8 @@ review mode 第一版当前不是新的 route state，而是挂在 surface 上�
 3. 切换时一定先做 detach-like 清理；大多数目标会进入 detached 态，但若切到 `claude` 且切换前已有当前 workspace，则会保留该 workspace claim，并立即进入“attach 已在线 Claude instance”或“启动 fresh Claude headless”的后续链路，而不是停在 detached idle。
 4. 若切换前存在 `PendingHeadless` 或 `surface resume state` 里仍带着 headless 恢复目标，会一并 kill / clear，避免 mode 切完以后又被后台恢复拉回 headless。
 5. `vscode` surface 不参与 managed-headless exact-thread continuation；而且 `surface resume state` 会把非 headless entry（当前即 `ProductMode!=normal`）的 `ResumeHeadless` 硬归零，避免 daemon 重启后从持久化状态重新长出这条恢复入口。
-6. 当前 mode 会跨 daemon 重启保留：
-   1. startup 会先恢复 latent surface、`ProductMode` 与 `Verbosity`
+6. 当前 mode 会通过 bot capability store 跨 daemon 重启保留：
+   1. startup 会先从 surface resume 恢复 latent route、`ProductMode` 执行 hint 与 `Verbosity`，随后由 bot capability store 覆盖合法 Feishu surface 的 mode/backend 投影
    2. headless 主链会继续按 persisted target 尝试自动恢复：workspace-owned route 直恢复 workspace intent；thread target 先 exact visible attach；`ResumeHeadless=true` 时再继续 exact-thread continuation
    3. 若存在 `ResumeThreadID`，在首轮 `threads.refresh -> threads.snapshot` 完成前会先静默等待，不会过早降级或直接报失败
    4. `vscode` 会按 exact `ResumeInstanceID` 尝试恢复：恢复成功后回到 `follow_local`，若暂时缺少新的 VS Code 活动则明确提示用户去 VS Code 再说一句话或手动 `/use`
@@ -1541,7 +1544,7 @@ daemon startup 的 vscode resume 额外规则：
    3. `threads.snapshot`
    4. `thread.discovered`
    5. `thread.focused`
-2. daemon startup 时会先根据 `surface resume state` materialize latent detached surface，并恢复 `ProductMode`、`Backend`、`ClaudeProfileID` 与 `Verbosity`；`PlanMode` 不再跨 daemon 恢复；`surface resume state` 当前也携带 headless 恢复所需的 thread 元数据，而且它已经是唯一持久化恢复源。startup 不再导入独立的 `headless-restore-hints.json`。
+2. daemon startup 时会先根据 `surface resume state` materialize latent detached surface，并恢复 route、`ProductMode`、`Backend`、`ClaudeProfileID` 与 `Verbosity` 执行 hint；合法 Feishu surface 随后由 gateway bot capability store 覆盖能力投影，`PlanMode` 也只从该 bot store 恢复。`surface resume state` 仍是 surface route 与 headless thread 恢复目标的唯一持久化源，但不是 bot capability 的第二写源。startup 不再导入独立的 `headless-restore-hints.json`。
 3. `surface resume state` 只有成功载入后才会 materialize 并进入后台恢复；读取、JSON 或 schema version 失败时，daemon 会把该 store 标为 read-only degraded，不创建替代空 store、不清掉进程内已有 recovery episode，也不允许后续 sync 覆盖原文件。若状态已成功解码但 canonical sanitation 保存失败，规范化后的 entry 仍可用于 materialize/recovery，但 store 保持只读。修复文件并重新 configure（通常是重启 daemon）后才恢复持久化写入。
 4. 后台恢复前置条件：
    1. surface 当前处于 headless 主链（当前持久化 token 仍是 `ProductMode=normal`）
@@ -1699,6 +1702,7 @@ Feishu 群聊 surface 对 bot 能力设置有额外覆盖规则：`/mode`、prov
 | `G11 TurnPatchTransactionRunning` | daemon 侧 active turn-patch transaction 运行中时，会先于普通 reducer 处理输入。当前 instance 的 attached surface 会统一被 `PauseSurfaceDispatch(...)`；发起 surface 与同 instance 其它 surface 的普通文本/图片/文件、`/bendtomywill`、`/bendtomywill rollback`、`/new`、`/compact`、`/detach`、bare config 与其它 competing card flow 都会被拒绝，并提示“当前正在修补/回滚当前会话”；只保留 `/status`、`/list`、`/help`、`/menu`、`/history`、`/debug`、reaction/recall 这类查看动作，直到 transaction 成功或失败收口 |
 | `G6 AbandoningGate / E6 Abandoning` | `Abandoning` 已在执行 overlay 中持有真实状态；对外门禁与 `G6` 一致：只允许 `/status`、`/autowhip`、`/autocontinue`；再次 `/detach` 只回 `detach_pending`；`/mode` 与其余动作统一拒绝。该 gate 当前只会在“已有真实 started turn 或其它 live work 仍需收尾”时进入；若只是 pre-start dispatching 残留，则 `/detach` 会直接失败 active item 并完成 detach，不再经过 `G6` |
 | `G7 VSCodeCompatibilityBlocked` | 只影响 daemon 的 detached-vscode 恢复路径：exact-instance auto-resume 与普通 open-vscode prompt 会被抑制，改发必要的修复/失败反馈；legacy `editor_settings` 若能安全静默迁到 `managed_shim`，则不会长时间停在这条 gate。surface 侧 `/list`、`/mode`、`/status` 等动作仍按 route matrix 正常处理。若提示由 stamped `/mode vscode` 当前卡同步触发，则优先承接到当前卡；后台恢复路径仍走独立 runtime 提示。异步兼容性检测 goroutine 只允许更新 compatibility cache 和 follow-up 标记；实际 prompt/recovery 必须等下一次 daemon 串行入口通过统一 surface recovery pipeline 消费该标记，避免绕过 orchestrator service 的串行状态边界 |
+| `G12 BotCapabilitySettingsInvalid` | 仅当 canonical map 中已有 record 但 record 无法规范化，或 storage key 与 record gateway 不一致时进入；absent record 不属于该 gate。effective capability read 不回退 surface raw 值，普通 action、plan proposal、Claude snapshot restore、queued prompt 与 AutoContinue dispatch 均停止并返回 `bot_capability_settings_invalid`；已有 queued/AutoContinue 状态保留，不会被错误推进，重复 dispatch notice 按分钟冷却。`/stop`、`/detach` 与 `/workspace detach` 仍允许释放执行与 route 资源。正常 store materialize / private configuration transaction 会拒绝非法 record，修复状态文件并重启后退出该 gate |
 
 retained-offline overlay 额外规则：
 
@@ -1775,7 +1779,7 @@ retained-offline overlay 额外规则：
 3. `/plan off`
 4. `/plan clear`
 
-四者都映射到 `ActionPlanCommand`，由服务端在当前 surface 上解释并决定新的 surface-level `PlanMode` / 显式 plan override；真正的提案 handoff 卡按钮则单独走 `ActionPlanProposalDecision`。
+四者都映射到 `ActionPlanCommand`，由服务端在当前 surface 上解释；合法 Feishu 私聊会字段级更新 gateway/bot record 的 `PlanMode` / 显式 plan override 并刷新同 gateway 投影，非 canonical surface 才使用本地 owner。真正的提案 handoff 卡按钮单独走 `ActionPlanProposalDecision`，并通过 lifecycle transaction 更新已有 record。
 
 同时，文本命令里新增：
 

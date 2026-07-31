@@ -312,6 +312,9 @@ func (s *Service) SetPrimaryBotPermissionChecker(checker PrimaryBotPermissionChe
 
 func (s *Service) ApplySurfaceAction(action control.Action) []eventcontract.Event {
 	surface := s.ensureSurface(action)
+	if blocked := s.rejectInvalidBotCapabilitySettings(surface, action); blocked != nil {
+		return s.filterEventsForSurfaceVisibility(blocked)
+	}
 	action = s.resolveCatalogActionFromSurfaceContext(surface, action)
 	if blocked := s.rejectExpiredCommandEntry(surface, action); blocked != nil {
 		return s.filterEventsForSurfaceVisibility(blocked)
@@ -504,30 +507,6 @@ func (s *Service) ApplySurfaceAction(action control.Action) []eventcontract.Even
 		return nil
 	}
 	return s.filterEventsForSurfaceVisibility(events)
-}
-
-func (s *Service) boundDaemonCommandEvents(surface *state.SurfaceConsoleRecord, action control.Action) ([]eventcontract.Event, bool) {
-	binding, ok := control.ResolveFeishuCommandBindingFromAction(action)
-	if !ok || binding.DirectDaemonCommand == "" {
-		return nil, false
-	}
-	command := &control.DaemonCommand{
-		Kind:             binding.DirectDaemonCommand,
-		GatewayID:        surface.GatewayID,
-		SurfaceSessionID: surface.SurfaceSessionID,
-		SourceMessageID:  action.MessageID,
-		Text:             action.Text,
-	}
-	if binding.PropagateCardActionToDaemon || action.LocalPageAction {
-		command.FromCardAction = action.IsCardAction()
-	}
-	return []eventcontract.Event{{
-		Kind:             eventcontract.KindDaemonCommand,
-		GatewayID:        surface.GatewayID,
-		SurfaceSessionID: surface.SurfaceSessionID,
-		SourceMessageID:  action.MessageID,
-		DaemonCommand:    command,
-	}}, true
 }
 
 func (s *Service) ApplyAgentEvent(instanceID string, event agentproto.Event) []eventcontract.Event {

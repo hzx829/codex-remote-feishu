@@ -236,7 +236,9 @@ func (s *Service) handleResolvedRequestPrompt(surface *state.SurfaceConsoleRecor
 	if !strings.EqualFold(strings.TrimSpace(metadataString(event.Metadata, "decision")), "accept") {
 		return nil
 	}
-	clearSurfacePlanModeOverride(surface)
+	if !s.clearLifecyclePlanModeOverride(surface) {
+		return s.botCapabilitySettingsInvalidEvents(surface)
+	}
 	return nil
 }
 

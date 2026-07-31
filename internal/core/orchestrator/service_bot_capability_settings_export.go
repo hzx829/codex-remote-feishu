@@ -22,6 +22,9 @@ func (s *Service) MaterializeBotCapabilitySettings(records []state.BotCapability
 		}
 		s.root.BotCapabilitySettings[key] = normalized
 	}
+	for _, record := range s.root.BotCapabilitySettings {
+		s.projectBotCapabilitySettingsToGatewaySurfaces(nil, record)
+	}
 }
 
 func (s *Service) BotCapabilitySettings() []state.BotCapabilitySettingsRecord {
@@ -36,7 +39,7 @@ func (s *Service) BotCapabilitySettings() []state.BotCapabilitySettingsRecord {
 	records := make([]state.BotCapabilitySettingsRecord, 0, len(keys))
 	for _, key := range keys {
 		record, ok := state.NormalizeBotCapabilitySettingsRecord(s.root.BotCapabilitySettings[key])
-		if !ok {
+		if !ok || state.BotCapabilitySettingsKey(record.GatewayID) != key {
 			continue
 		}
 		records = append(records, record)

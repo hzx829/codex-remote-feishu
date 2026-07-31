@@ -35,8 +35,8 @@ func TestNormalizeBotCapabilitySettingsRecord(t *testing.T) {
 	if record.ProductMode != ProductModeNormal || record.Backend != agentproto.BackendClaude {
 		t.Fatalf("contract = %s/%s, want normal/claude", record.ProductMode, record.Backend)
 	}
-	if record.CodexProviderID != "" || record.ClaudeProfileID != "devseek" {
-		t.Fatalf("provider/profile = %q/%q, want empty/devseek", record.CodexProviderID, record.ClaudeProfileID)
+	if record.CodexProviderID != "team-proxy" || record.ClaudeProfileID != "devseek" {
+		t.Fatalf("provider/profile = %q/%q, want team-proxy/devseek", record.CodexProviderID, record.ClaudeProfileID)
 	}
 	if record.PromptOverride.Model != "gpt-5.4" || record.PromptOverride.ReasoningEffort != "high" || record.PromptOverride.AccessMode != "confirm" {
 		t.Fatalf("PromptOverride = %#v, want compact normalized values", record.PromptOverride)
@@ -96,7 +96,7 @@ func TestEffectiveSurfaceCapabilitySettingsUsesBotRecordForFeishuRoom(t *testing
 	}
 }
 
-func TestEffectiveSurfaceCapabilitySettingsKeepsPrivateSurfaceLocal(t *testing.T) {
+func TestEffectiveSurfaceCapabilitySettingsUsesBotRecordForFeishuPrivate(t *testing.T) {
 	root := NewRoot()
 	root.BotCapabilitySettings["feishu:gateway:app-1"] = BotCapabilitySettingsRecord{
 		GatewayID:       "app-1",
@@ -116,8 +116,11 @@ func TestEffectiveSurfaceCapabilitySettingsKeepsPrivateSurfaceLocal(t *testing.T
 	}
 
 	effective := EffectiveSurfaceCapabilitySettings(root, surface)
-	if effective.Contract.Backend != agentproto.BackendCodex || effective.Contract.CodexProviderID != "team-proxy" {
-		t.Fatalf("effective contract = %#v, want private surface local contract", effective.Contract)
+	if effective.Source != SurfaceCapabilitySettingsSourceBot {
+		t.Fatalf("source = %q, want bot settings", effective.Source)
+	}
+	if effective.Contract.Backend != agentproto.BackendClaude || effective.Contract.ClaudeProfileID != "devseek" {
+		t.Fatalf("effective contract = %#v, want bot claude profile", effective.Contract)
 	}
 }
 
@@ -145,5 +148,76 @@ func TestEffectiveSurfaceCapabilitySettingsRejectsMalformedFeishuRoomIdentity(t 
 	}
 	if effective.Contract.Backend != agentproto.BackendCodex || effective.Contract.CodexProviderID != "team-proxy" {
 		t.Fatalf("effective contract = %#v, want malformed identity to stay local", effective.Contract)
+	}
+}
+
+func TestEffectiveSurfaceCapabilitySettingsRejectsGatewayIdentityMismatch(t *testing.T) {
+	root := NewRoot()
+	root.BotCapabilitySettings["feishu:gateway:app-2"] = BotCapabilitySettingsRecord{
+		GatewayID:       "app-2",
+		ProductMode:     ProductModeNormal,
+		Backend:         agentproto.BackendClaude,
+		ClaudeProfileID: "devseek",
+	}
+	surface := &SurfaceConsoleRecord{
+		SurfaceSessionID: "feishu:app-1:user:ou_user",
+		Platform:         "feishu",
+		GatewayID:        "app-2",
+		ChatID:           "ou_user",
+		ProductMode:      ProductModeNormal,
+		Backend:          agentproto.BackendCodex,
+		CodexProviderID:  "team-proxy",
+	}
+
+	effective := EffectiveSurfaceCapabilitySettings(root, surface)
+	if effective.Source != SurfaceCapabilitySettingsSourceSurface {
+		t.Fatalf("source = %q, want gateway-mismatched identity to stay local", effective.Source)
+	}
+	if effective.Contract.Backend != agentproto.BackendCodex || effective.Contract.CodexProviderID != "team-proxy" {
+		t.Fatalf("effective contract = %#v, want gateway-mismatched identity to stay local", effective.Contract)
+	}
+}
+
+func TestLookupSurfaceBotCapabilitySettingsDistinguishesAbsentAndInvalid(t *testing.T) {
+	root := NewRoot()
+	surface := &SurfaceConsoleRecord{
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		Platform:         "feishu",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ProductMode:      ProductModeNormal,
+		Backend:          agentproto.BackendClaude,
+		ClaudeProfileID:  "stale-local",
+		PromptOverride:   ModelConfigRecord{ReasoningEffort: "high"},
+	}
+
+	if _, status := LookupSurfaceBotCapabilitySettings(root, surface); status != BotCapabilitySettingsLookupAbsent {
+		t.Fatalf("missing lookup status = %q, want absent", status)
+	}
+
+	key := BotCapabilitySettingsKey("app-1")
+	root.BotCapabilitySettings[key] = BotCapabilitySettingsRecord{}
+	if _, status := LookupSurfaceBotCapabilitySettings(root, surface); status != BotCapabilitySettingsLookupInvalid {
+		t.Fatalf("malformed lookup status = %q, want invalid", status)
+	}
+	effective := EffectiveSurfaceCapabilitySettings(root, surface)
+	if effective.Source != SurfaceCapabilitySettingsSourceInvalid {
+		t.Fatalf("malformed effective source = %q, want invalid", effective.Source)
+	}
+	if effective.Contract.ClaudeProfileID == "stale-local" || effective.PromptOverride.ReasoningEffort == "high" {
+		t.Fatalf("invalid canonical record fell back to local surface values: %#v", effective)
+	}
+
+	root.BotCapabilitySettings[key] = BotCapabilitySettingsRecord{
+		GatewayID:       "app-2",
+		ProductMode:     ProductModeNormal,
+		Backend:         agentproto.BackendClaude,
+		ClaudeProfileID: "other-gateway",
+	}
+	if _, status := LookupSurfaceBotCapabilitySettings(root, surface); status != BotCapabilitySettingsLookupInvalid {
+		t.Fatalf("cross-gateway lookup status = %q, want invalid", status)
+	}
+	if effective := EffectiveSurfaceCapabilitySettings(root, surface); effective.Source != SurfaceCapabilitySettingsSourceInvalid {
+		t.Fatalf("cross-gateway effective source = %q, want invalid", effective.Source)
 	}
 }

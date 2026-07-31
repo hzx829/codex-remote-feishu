@@ -440,6 +440,7 @@ func TestPlanConfirmationReviseUsesSameRequestFeedback(t *testing.T) {
 func TestClaudePlanConfirmationAcceptClearsPlanOverrideOnlyAfterResolved(t *testing.T) {
 	now := time.Date(2026, 5, 4, 12, 0, 0, 0, time.UTC)
 	svc := newServiceForTest(&now)
+	surfaceID := "feishu:app-1:user:user-1"
 	svc.UpsertInstance(&state.InstanceRecord{
 		InstanceID:      "inst-1",
 		DisplayName:     "droid",
@@ -453,11 +454,11 @@ func TestClaudePlanConfirmationAcceptClearsPlanOverrideOnlyAfterResolved(t *test
 			"thread-1": {ThreadID: "thread-1", Name: "修复登录流程", CWD: "/data/dl/droid", Loaded: true},
 		},
 	})
-	svc.ApplySurfaceAction(control.Action{Kind: control.ActionModeCommand, SurfaceSessionID: "surface-1", ChatID: "chat-1", ActorUserID: "user-1", Text: "/mode claude"})
-	svc.ApplySurfaceAction(control.Action{Kind: control.ActionAttachInstance, SurfaceSessionID: "surface-1", ChatID: "chat-1", ActorUserID: "user-1", InstanceID: "inst-1"})
-	svc.ApplySurfaceAction(control.Action{Kind: control.ActionUseThread, SurfaceSessionID: "surface-1", ChatID: "chat-1", ActorUserID: "user-1", ThreadID: "thread-1"})
-	surface := svc.root.Surfaces["surface-1"]
-	setSurfacePlanModeOverride(surface, state.PlanModeSettingOn)
+	svc.ApplySurfaceAction(privateCapabilityAction(control.ActionModeCommand, "app-1", "user-1", "/mode claude"))
+	svc.ApplySurfaceAction(control.Action{Kind: control.ActionAttachInstance, SurfaceSessionID: surfaceID, GatewayID: "app-1", ChatID: "user-1", ActorUserID: "user-1", InstanceID: "inst-1"})
+	svc.ApplySurfaceAction(control.Action{Kind: control.ActionUseThread, SurfaceSessionID: surfaceID, GatewayID: "app-1", ChatID: "user-1", ActorUserID: "user-1", ThreadID: "thread-1"})
+	svc.ApplySurfaceAction(privateCapabilityAction(control.ActionPlanCommand, "app-1", "user-1", "/plan on"))
+	surface := svc.root.Surfaces[surfaceID]
 	svc.ApplyAgentEvent("inst-1", agentproto.Event{
 		Kind:      agentproto.EventTurnStarted,
 		ThreadID:  "thread-1",
@@ -482,12 +483,19 @@ func TestClaudePlanConfirmationAcceptClearsPlanOverrideOnlyAfterResolved(t *test
 	})
 	svc.ApplySurfaceAction(control.Action{
 		Kind:             control.ActionRespondRequest,
-		SurfaceSessionID: "surface-1",
+		SurfaceSessionID: surfaceID,
+		GatewayID:        "app-1",
+		ChatID:           "user-1",
+		ActorUserID:      "user-1",
 		MessageID:        "om-card-accept",
 		Request:          testRequestAction("req-plan-1", "approval", "accept", nil, 0),
 	})
 	if surface.PlanMode != state.PlanModeSettingOn || !surface.PlanModeOverrideSet {
 		t.Fatalf("expected plan override to stay until request.resolved, got %#v", surface)
+	}
+	beforeResolve := svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")]
+	if beforeResolve.PlanMode != state.PlanModeSettingOn || !beforeResolve.PlanModeOverrideSet {
+		t.Fatalf("expected canonical plan override to stay until request.resolved, got %#v", beforeResolve)
 	}
 
 	svc.ApplyAgentEvent("inst-1", agentproto.Event{
@@ -501,6 +509,10 @@ func TestClaudePlanConfirmationAcceptClearsPlanOverrideOnlyAfterResolved(t *test
 	})
 	if surface.PlanMode != state.PlanModeSettingOff || surface.PlanModeOverrideSet {
 		t.Fatalf("expected request.resolved accept to clear plan override, got %#v", surface)
+	}
+	afterResolve := svc.root.BotCapabilitySettings[state.BotCapabilitySettingsKey("app-1")]
+	if afterResolve.PlanMode != state.PlanModeSettingOff || afterResolve.PlanModeOverrideSet {
+		t.Fatalf("expected request.resolved accept to clear canonical plan override, got %#v", afterResolve)
 	}
 }
 

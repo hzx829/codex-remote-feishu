@@ -94,6 +94,24 @@ func clearSurfacePlanModeOverride(surface *state.SurfaceConsoleRecord) {
 	surface.PlanModeOverrideSet = false
 }
 
+func (s *Service) setLifecyclePlanModeOverride(surface *state.SurfaceConsoleRecord, value state.PlanModeSetting) bool {
+	return s.applySurfaceCapabilityLifecycleMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+		record.PlanMode = state.NormalizePlanModeSetting(value)
+		record.PlanModeOverrideSet = true
+	}, func(local *state.SurfaceConsoleRecord) {
+		setSurfacePlanModeOverride(local, value)
+	})
+}
+
+func (s *Service) clearLifecyclePlanModeOverride(surface *state.SurfaceConsoleRecord) bool {
+	return s.applySurfaceCapabilityLifecycleMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+		record.PlanMode = state.PlanModeSettingOff
+		record.PlanModeOverrideSet = false
+	}, func(local *state.SurfaceConsoleRecord) {
+		clearSurfacePlanModeOverride(local)
+	})
+}
+
 func (s *Service) resolveClaudeProfileSelection(value string) (state.ClaudeProfileRecord, bool) {
 	targetID := state.NormalizeClaudeProfileID(value)
 	for _, profile := range s.ClaudeProfiles() {
@@ -212,13 +230,27 @@ func (s *Service) handleModeCommand(surface *state.SurfaceConsoleRecord, action 
 	}
 	switch {
 	case state.IsVSCodeProductMode(target.ProductMode):
-		s.setSurfaceDesiredContract(surface, state.VSCodeSurfaceBackendContract())
+		s.applySurfaceCapabilitySettingsMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+			record.ProductMode = state.ProductModeVSCode
+			record.Backend = agentproto.BackendCodex
+		}, func(local *state.SurfaceConsoleRecord) {
+			s.setSurfaceDesiredContract(local, state.VSCodeSurfaceBackendContract())
+		})
 	case target.Backend == agentproto.BackendClaude:
-		s.setSurfaceDesiredContract(surface, state.HeadlessClaudeSurfaceBackendContract(surface.ClaudeProfileID))
+		s.applySurfaceCapabilitySettingsMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+			record.ProductMode = state.ProductModeNormal
+			record.Backend = agentproto.BackendClaude
+		}, func(local *state.SurfaceConsoleRecord) {
+			s.setSurfaceDesiredContract(local, state.HeadlessClaudeSurfaceBackendContract(local.ClaudeProfileID))
+		})
 	default:
-		s.setSurfaceDesiredContract(surface, state.HeadlessCodexSurfaceBackendContract(surface.CodexProviderID))
+		s.applySurfaceCapabilitySettingsMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+			record.ProductMode = state.ProductModeNormal
+			record.Backend = agentproto.BackendCodex
+		}, func(local *state.SurfaceConsoleRecord) {
+			s.setSurfaceDesiredContract(local, state.HeadlessCodexSurfaceBackendContract(local.CodexProviderID))
+		})
 	}
-	s.syncBotCapabilitySettingsFromSurface(surface)
 	if currentWorkspaceKey != "" && state.IsHeadlessProductMode(target.ProductMode) {
 		s.transitionSurfaceRouteCore(surface, nil, surfaceRouteCoreState{WorkspaceKey: currentWorkspaceKey})
 	}
@@ -344,11 +376,16 @@ func (s *Service) handleClaudeProfileCommand(surface *state.SurfaceConsoleRecord
 	events := s.discardDrafts(surface)
 	events = s.queueHeadlessContractRestart(events, surface, continuation)
 	events = append(events, s.finalizeDetachedSurface(surface)...)
-	s.setSurfaceClaudeProfileID(surface, target.ID)
-	s.syncBotCapabilitySettingsFromSurface(surface)
+	s.applySurfaceCapabilitySettingsMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+		record.ClaudeProfileID = target.ID
+	}, func(local *state.SurfaceConsoleRecord) {
+		s.setSurfaceClaudeProfileID(local, target.ID)
+		if currentWorkspaceKey == "" {
+			local.PromptOverride = state.ModelConfigRecord{}
+			clearSurfacePlanModeOverride(local)
+		}
+	})
 	if currentWorkspaceKey == "" {
-		surface.PromptOverride = state.ModelConfigRecord{}
-		clearSurfacePlanModeOverride(surface)
 		text := fmt.Sprintf("已切换到 Claude 配置：%s。当前没有接管中的工作区。", targetLabel)
 		if commandCardOwnsInlineResult(action) {
 			return s.inlineCommandCardEvents(surface, action, control.FeishuCatalogConfigView{
@@ -361,7 +398,9 @@ func (s *Service) handleClaudeProfileCommand(surface *state.SurfaceConsoleRecord
 	}
 
 	s.transitionSurfaceRouteCore(surface, nil, surfaceRouteCoreState{WorkspaceKey: currentWorkspaceKey})
-	s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface)
+	if blocked := s.restoreCurrentClaudeWorkspaceProfileSnapshot(surface); len(blocked) != 0 {
+		return append(events, blocked...)
+	}
 	resumeEvents := s.restartHeadlessContractContinuation(surface, continuation)
 	statusText := fmt.Sprintf("已切换到 Claude 配置：%s。正在重新准备当前工作区。", targetLabel)
 	if commandCardOwnsInlineResult(action) {
@@ -532,14 +571,16 @@ func (s *Service) handlePlanCommand(surface *state.SurfaceConsoleRecord, action 
 	}
 	if len(parts) == 2 && isClearCommand(parts[1]) {
 		text := "已清除飞书临时 Plan mode 覆盖。之后从飞书发送的消息将跟随底层当前状态。"
-		return s.applySurfaceSettingChange(surface, action, func() {
-			clearSurfacePlanModeOverride(surface)
-		}, func() surfaceSettingFeedback {
-			return surfaceSettingFeedback{
-				NoticeCode:     "surface_plan_mode_cleared",
-				NoticeText:     text,
-				CardStatusText: text,
-			}
+		s.applySurfaceCapabilitySettingsMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+			record.PlanMode = state.PlanModeSettingOff
+			record.PlanModeOverrideSet = false
+		}, func(local *state.SurfaceConsoleRecord) {
+			clearSurfacePlanModeOverride(local)
+		})
+		return s.surfaceSettingFeedbackEvents(surface, action, surfaceSettingFeedback{
+			NoticeCode:     "surface_plan_mode_cleared",
+			NoticeText:     text,
+			CardStatusText: text,
 		})
 	}
 	if len(parts) != 2 {
@@ -573,14 +614,16 @@ func (s *Service) handlePlanCommand(surface *state.SurfaceConsoleRecord, action 
 	if surface.ActiveQueueItemID != "" || len(surface.QueuedQueueItemIDs) != 0 {
 		text += " 当前已在执行或排队的消息不受影响。"
 	}
-	return s.applySurfaceSettingChange(surface, action, func() {
-		setSurfacePlanModeOverride(surface, target)
-	}, func() surfaceSettingFeedback {
-		return surfaceSettingFeedback{
-			NoticeCode:     "surface_plan_mode_updated",
-			NoticeText:     text,
-			CardStatusText: text,
-		}
+	s.applySurfaceCapabilitySettingsMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+		record.PlanMode = target
+		record.PlanModeOverrideSet = true
+	}, func(local *state.SurfaceConsoleRecord) {
+		setSurfacePlanModeOverride(local, target)
+	})
+	return s.surfaceSettingFeedbackEvents(surface, action, surfaceSettingFeedback{
+		NoticeCode:     "surface_plan_mode_updated",
+		NoticeText:     text,
+		CardStatusText: text,
 	})
 }
 

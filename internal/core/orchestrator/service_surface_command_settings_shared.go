@@ -12,11 +12,7 @@ type surfaceSettingFeedback struct {
 	CardStatusText string
 }
 
-func (s *Service) applySurfaceSettingChange(surface *state.SurfaceConsoleRecord, action control.Action, mutate func(), build func() surfaceSettingFeedback) []eventcontract.Event {
-	mutate()
-	s.syncBotCapabilitySettingsFromSurface(surface)
-	s.persistCurrentClaudeWorkspaceProfileSnapshot(surface)
-	feedback := build()
+func (s *Service) surfaceSettingFeedbackEvents(surface *state.SurfaceConsoleRecord, action control.Action, feedback surfaceSettingFeedback) []eventcontract.Event {
 	if commandCardOwnsInlineResult(action) {
 		return s.inlineCommandCardEvents(surface, action, control.FeishuCatalogConfigView{
 			Sealed:     true,
@@ -28,14 +24,18 @@ func (s *Service) applySurfaceSettingChange(surface *state.SurfaceConsoleRecord,
 }
 
 func (s *Service) applyPromptOverrideChange(surface *state.SurfaceConsoleRecord, action control.Action, inst *state.InstanceRecord, mutate func(*state.ModelConfigRecord), build func(control.PromptRouteSummary) surfaceSettingFeedback) []eventcontract.Event {
-	return s.applySurfaceSettingChange(surface, action, func() {
-		override := surface.PromptOverride
+	s.applySurfaceCapabilitySettingsMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+		override := record.PromptOverride
 		mutate(&override)
-		surface.PromptOverride = compactPromptOverride(override)
-	}, func() surfaceSettingFeedback {
-		summary := s.resolveNextPromptSummary(inst, surface, "", "", state.ModelConfigRecord{})
-		return build(summary)
+		record.PromptOverride = compactPromptOverride(override)
+	}, func(local *state.SurfaceConsoleRecord) {
+		override := local.PromptOverride
+		mutate(&override)
+		local.PromptOverride = compactPromptOverride(override)
 	})
+	s.persistCurrentClaudeWorkspaceProfileSnapshot(surface)
+	summary := s.resolveNextPromptSummary(inst, surface, "", "", state.ModelConfigRecord{})
+	return s.surfaceSettingFeedbackEvents(surface, action, build(summary))
 }
 
 func (s *Service) attachedInstanceForPromptSettingCommand(surface *state.SurfaceConsoleRecord, action control.Action) (*state.InstanceRecord, []eventcontract.Event) {

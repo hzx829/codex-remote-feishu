@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
+	"github.com/kxn/codex-remote-feishu/internal/core/eventcontract"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
 )
 
@@ -142,14 +143,21 @@ func (s *Service) currentClaudeWorkspaceProfileSnapshotRecord(surface *state.Sur
 	if surface == nil {
 		return state.ClaudeWorkspaceProfileSnapshotRecord{}
 	}
+	override := surface.PromptOverride
+	if settings := state.EffectiveSurfaceCapabilitySettings(s.root, surface); settings.Source == state.SurfaceCapabilitySettingsSourceBot {
+		override = settings.PromptOverride
+	}
 	return state.NormalizeClaudeWorkspaceProfileSnapshotRecord(state.ClaudeWorkspaceProfileSnapshotRecord{
-		ReasoningEffort: surface.PromptOverride.ReasoningEffort,
-		AccessMode:      surface.PromptOverride.AccessMode,
+		ReasoningEffort: override.ReasoningEffort,
+		AccessMode:      override.AccessMode,
 	})
 }
 
 func (s *Service) persistCurrentClaudeWorkspaceProfileSnapshot(surface *state.SurfaceConsoleRecord) {
 	if surface == nil || s.root == nil {
+		return
+	}
+	if s.botCapabilitySettingsInvalid(surface) {
 		return
 	}
 	key := s.currentClaudeWorkspaceProfileSnapshotKey(surface)
@@ -167,24 +175,35 @@ func (s *Service) persistCurrentClaudeWorkspaceProfileSnapshot(surface *state.Su
 	s.root.ClaudeWorkspaceProfileSnapshots[key] = record
 }
 
-func (s *Service) restoreCurrentClaudeWorkspaceProfileSnapshot(surface *state.SurfaceConsoleRecord) {
+func (s *Service) restoreCurrentClaudeWorkspaceProfileSnapshot(surface *state.SurfaceConsoleRecord) []eventcontract.Event {
 	if surface == nil {
-		return
+		return nil
+	}
+	if s.botCapabilitySettingsInvalid(surface) {
+		return s.botCapabilitySettingsInvalidEvents(surface)
 	}
 	key := s.currentClaudeWorkspaceProfileSnapshotKey(surface)
 	if key == "" {
-		return
+		return nil
 	}
-	surface.PromptOverride.Model = ""
-	surface.PromptOverride.ReasoningEffort = ""
-	surface.PromptOverride.AccessMode = ""
-	clearSurfacePlanModeOverride(surface)
+	override := state.ModelConfigRecord{}
 	if s.root != nil && s.root.ClaudeWorkspaceProfileSnapshots != nil {
 		if record, ok := s.root.ClaudeWorkspaceProfileSnapshots[key]; ok {
 			record = state.NormalizeClaudeWorkspaceProfileSnapshotRecord(record)
-			surface.PromptOverride.ReasoningEffort = record.ReasoningEffort
-			surface.PromptOverride.AccessMode = record.AccessMode
+			override.ReasoningEffort = record.ReasoningEffort
+			override.AccessMode = record.AccessMode
 		}
 	}
-	surface.PromptOverride = compactPromptOverride(surface.PromptOverride)
+	override = compactPromptOverride(override)
+	if !s.applySurfaceCapabilityLifecycleMutation(surface, func(record *state.BotCapabilitySettingsRecord) {
+		record.PromptOverride = override
+		record.PlanMode = state.PlanModeSettingOff
+		record.PlanModeOverrideSet = false
+	}, func(local *state.SurfaceConsoleRecord) {
+		local.PromptOverride = override
+		clearSurfacePlanModeOverride(local)
+	}) {
+		return s.botCapabilitySettingsInvalidEvents(surface)
+	}
+	return nil
 }

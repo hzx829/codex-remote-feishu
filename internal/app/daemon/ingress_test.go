@@ -39,6 +39,29 @@ func TestEventAffectsSurfaceResumeState(t *testing.T) {
 	}
 }
 
+func TestEventAffectsBotCapabilitySettingsState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		event agentproto.Event
+		want  bool
+	}{
+		{name: "request resolved", event: agentproto.Event{Kind: agentproto.EventRequestResolved}, want: true},
+		{name: "item delta", event: agentproto.Event{Kind: agentproto.EventItemDelta}, want: false},
+		{name: "turn completed", event: agentproto.Event{Kind: agentproto.EventTurnCompleted}, want: false},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := eventAffectsBotCapabilitySettingsState(tc.event); got != tc.want {
+				t.Fatalf("eventAffectsBotCapabilitySettingsState(%s) = %t, want %t", tc.event.Kind, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestShouldLogAgentEvent(t *testing.T) {
 	t.Parallel()
 

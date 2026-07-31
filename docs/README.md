@@ -1,8 +1,8 @@
 # Documentation Index
 
 > Type: `general`
-> Updated: `2026-07-17`
-> Summary: 同步 WebSetup/Admin 飞书接入文档 SSOT 归档后的索引。
+> Updated: `2026-07-31`
+> Summary: 新增 Codex Profile 与 OAuth 隔离设计，并将旧 Codex Provider 管理草案移入历史归档。
 
 ## 1. 适用范围
 
@@ -171,7 +171,7 @@
 - [autopilot-workspace-automation-design.md](./draft/autopilot-workspace-automation-design.md)
 - [claude-cli-blackbox-findings-2026-04-28.md](./draft/claude-cli-blackbox-findings-2026-04-28.md)
 - [codex-session-patcher-research-2026-04.md](./draft/codex-session-patcher-research-2026-04.md)
-- [web-codex-provider-management-design.md](./draft/web-codex-provider-management-design.md)
+- [codex-profile-oauth-isolation-design.md](./draft/codex-profile-oauth-isolation-design.md)
 - [claude-cli-blackbox-test-plan.md](./draft/claude-cli-blackbox-test-plan.md)
 - [current-thread-patch-v1-prd.md](./draft/current-thread-patch-v1-prd.md)
 - [current-thread-patch-v1-tech-plan.md](./draft/current-thread-patch-v1-tech-plan.md)
@@ -214,6 +214,7 @@
 - [web-admin-user-mock.html](./obsoleted/web-admin-user-mock.html)
 - [web-install-admin-prerequisites-design.md](./obsoleted/web-install-admin-prerequisites-design.md)
 - [web-install-admin-ui-design.md](./obsoleted/web-install-admin-ui-design.md)
+- [web-codex-provider-management-design.md](./obsoleted/web-codex-provider-management-design.md)
 - [web-onboarding-admin-user-view.md](./obsoleted/web-onboarding-admin-user-view.md)
 - [web-onboarding-admin-workflow-prd.md](./obsoleted/web-onboarding-admin-workflow-prd.md)
 - [web-setup-flow-v2.md](./obsoleted/web-setup-flow-v2.md)

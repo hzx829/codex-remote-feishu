@@ -1,8 +1,9 @@
 # Web Codex Provider 管理设计
 
-> Type: `draft`
-> Updated: `2026-07-17`
-> Summary: 固定共享 home 前提下的 Codex Provider 管理边界：provider 与密钥由本仓库自行管理，只放在 admin 页面，启动时用 `-c` 覆盖与子进程环境变量注入，并将 Web 页面基线引用切到历史归档。
+> Type: `obsoleted`
+> Updated: `2026-07-31`
+> Summary: 旧 Codex Provider 管理方案已被统一 Profile 与 OAuth 隔离设计取代，仅保留当前实现形成过程的历史背景。
+> Superseded By: `docs/draft/codex-profile-oauth-isolation-design.md`
 
 ## 1. 背景
 

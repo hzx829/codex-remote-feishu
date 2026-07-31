@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 )
 
 func previewRecordScopeKey(fileKey string) string {
@@ -110,7 +112,7 @@ func previewPrincipals(surfaceSessionID, chatID, actorUserID string) []previewPr
 		seen[userPrincipal.Key] = true
 		values = append(values, userPrincipal)
 	}
-	if ref, ok := ParseSurfaceRef(surfaceSessionID); ok && ref.ScopeKind == ScopeKindChat {
+	if ref, ok := feishuidentity.ParseSurfaceRef(surfaceSessionID); ok && ref.IsChat() {
 		if chatPrincipal, ok := previewChatPrincipal(chatID); ok && !seen[chatPrincipal.Key] {
 			seen[chatPrincipal.Key] = true
 			values = append(values, chatPrincipal)
@@ -158,17 +160,17 @@ func previewScopeKey(gatewayID, surfaceSessionID, chatID, actorUserID string) st
 	}
 	gatewayID = normalizeGatewayID(gatewayID)
 	if strings.TrimSpace(chatID) != "" {
-		return SurfaceRef{
-			Platform:  PlatformFeishu,
+		return feishuidentity.SurfaceRef{
+			Platform:  feishuidentity.PlatformFeishu,
 			GatewayID: gatewayID,
-			ScopeKind: ScopeKindChat,
+			ScopeKind: feishuidentity.ScopeKindChat,
 			ScopeID:   strings.TrimSpace(chatID),
 		}.SurfaceID()
 	}
-	return SurfaceRef{
-		Platform:  PlatformFeishu,
+	return feishuidentity.SurfaceRef{
+		Platform:  feishuidentity.PlatformFeishu,
 		GatewayID: gatewayID,
-		ScopeKind: ScopeKindUser,
+		ScopeKind: feishuidentity.ScopeKindUser,
 		ScopeID:   strings.TrimSpace(actorUserID),
 	}.SurfaceID()
 }

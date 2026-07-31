@@ -53,6 +53,10 @@ func ResolveReceiveTarget(chatID, actorUserID string) (string, string) {
 	return gatewaypkg.ResolveReceiveTarget(chatID, actorUserID)
 }
 
+func normalizeGatewayID(gatewayID string) string {
+	return strings.TrimSpace(gatewayID)
+}
+
 func reactionKey(messageID, emojiType string) string {
 	return messageID + "|" + emojiType
 }

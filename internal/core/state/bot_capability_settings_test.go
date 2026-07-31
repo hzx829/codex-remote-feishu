@@ -120,3 +120,30 @@ func TestEffectiveSurfaceCapabilitySettingsKeepsPrivateSurfaceLocal(t *testing.T
 		t.Fatalf("effective contract = %#v, want private surface local contract", effective.Contract)
 	}
 }
+
+func TestEffectiveSurfaceCapabilitySettingsRejectsMalformedFeishuRoomIdentity(t *testing.T) {
+	root := NewRoot()
+	root.BotCapabilitySettings["feishu:gateway:app-1"] = BotCapabilitySettingsRecord{
+		GatewayID:       "app-1",
+		ProductMode:     ProductModeNormal,
+		Backend:         agentproto.BackendClaude,
+		ClaudeProfileID: "devseek",
+	}
+	surface := &SurfaceConsoleRecord{
+		SurfaceSessionID: "feishu:app-1:unknown:chat:oc_room",
+		Platform:         "feishu",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ProductMode:      ProductModeNormal,
+		Backend:          agentproto.BackendCodex,
+		CodexProviderID:  "team-proxy",
+	}
+
+	effective := EffectiveSurfaceCapabilitySettings(root, surface)
+	if effective.Source != SurfaceCapabilitySettingsSourceSurface {
+		t.Fatalf("source = %q, want local surface settings", effective.Source)
+	}
+	if effective.Contract.Backend != agentproto.BackendCodex || effective.Contract.CodexProviderID != "team-proxy" {
+		t.Fatalf("effective contract = %#v, want malformed identity to stay local", effective.Contract)
+	}
+}

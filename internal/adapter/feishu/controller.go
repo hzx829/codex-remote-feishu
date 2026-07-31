@@ -10,6 +10,7 @@ import (
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 
 	previewpkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/preview"
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 )
 
 type GatewayAdminController interface {
@@ -138,7 +139,7 @@ func workerHasCredentials(cfg GatewayAppConfig) bool {
 }
 
 func gatewayIDFromSurface(surfaceID string) string {
-	ref, ok := ParseSurfaceRef(surfaceID)
+	ref, ok := feishuidentity.ParseSurfaceRef(surfaceID)
 	if !ok {
 		return ""
 	}

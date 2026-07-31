@@ -7,6 +7,7 @@ import (
 
 	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 )
 
 type feishuTimeSensitiveState struct {
@@ -86,8 +87,8 @@ func feishuTimeSensitiveTarget(surface *state.SurfaceConsoleRecord) (feishuTimeS
 	if surface == nil {
 		return feishuTimeSensitiveState{}, false, false
 	}
-	ref, ok := feishu.ParseSurfaceRef(surface.SurfaceSessionID)
-	if !ok || ref.ScopeKind != feishu.ScopeKindUser {
+	ref, ok := feishuidentity.ParseSurfaceRef(surface.SurfaceSessionID)
+	if !ok || !ref.IsUser() {
 		return feishuTimeSensitiveState{}, false, false
 	}
 	receiveID, receiveIDType := feishu.ResolveReceiveTarget("", ref.ScopeID)

@@ -4,12 +4,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu"
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 )
 
 type feishuP2PSurfaceResumeCandidate struct {
 	entry Entry
-	ref   feishu.SurfaceRef
+	ref   feishuidentity.SurfaceRef
 }
 
 func CanonicalizeEntries(entries map[string]Entry) (map[string]Entry, bool) {
@@ -59,8 +59,8 @@ func CanonicalizeEntries(entries map[string]Entry) (map[string]Entry, bool) {
 }
 
 func feishuP2PSurfaceResumeGroup(entry Entry) (string, feishuP2PSurfaceResumeCandidate, bool) {
-	ref, ok := feishu.ParseSurfaceRef(entry.SurfaceSessionID)
-	if !ok || ref.ScopeKind != feishu.ScopeKindUser {
+	ref, ok := feishuidentity.ParseSurfaceRef(entry.SurfaceSessionID)
+	if !ok || !ref.IsUser() {
 		return "", feishuP2PSurfaceResumeCandidate{}, false
 	}
 	chatID := strings.TrimSpace(entry.ChatID)
@@ -108,10 +108,10 @@ func mergeFeishuP2PSurfaceResumeCandidates(candidates []feishuP2PSurfaceResumeCa
 	merged.GatewayID = strings.TrimSpace(firstNonEmpty(gatewayID, merged.GatewayID))
 	merged.ChatID = strings.TrimSpace(firstNonEmpty(chatID, merged.ChatID))
 	merged.ActorUserID = strings.TrimSpace(firstNonEmpty(bestIdentity, merged.ActorUserID))
-	merged.SurfaceSessionID = feishu.SurfaceRef{
-		Platform:  feishu.PlatformFeishu,
+	merged.SurfaceSessionID = feishuidentity.SurfaceRef{
+		Platform:  feishuidentity.PlatformFeishu,
 		GatewayID: merged.GatewayID,
-		ScopeKind: feishu.ScopeKindUser,
+		ScopeKind: feishuidentity.ScopeKindUser,
 		ScopeID:   merged.ActorUserID,
 	}.SurfaceID()
 

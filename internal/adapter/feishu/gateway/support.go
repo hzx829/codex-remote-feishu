@@ -10,18 +10,8 @@ import (
 )
 
 const (
-	PlatformFeishu             = "feishu"
-	ScopeKindUser              = "user"
-	ScopeKindChat              = "chat"
 	inboundMessageParseTimeout = 30 * time.Second
 )
-
-type SurfaceRef struct {
-	Platform  string
-	GatewayID string
-	ScopeKind string
-	ScopeID   string
-}
 
 type feishuTextContent struct {
 	Text string `json:"text"`
@@ -45,40 +35,6 @@ type feishuPostNode struct {
 	ImageKey  string `json:"image_key"`
 	EmojiType string `json:"emoji_type"`
 	Language  string `json:"language"`
-}
-
-func (r SurfaceRef) SurfaceID() string {
-	if !r.valid() {
-		return ""
-	}
-	return strings.Join([]string{
-		PlatformFeishu,
-		normalizeGatewayID(r.GatewayID),
-		r.ScopeKind,
-		r.ScopeID,
-	}, ":")
-}
-
-func (r SurfaceRef) valid() bool {
-	if strings.TrimSpace(r.Platform) != PlatformFeishu {
-		return false
-	}
-	if strings.TrimSpace(r.GatewayID) == "" {
-		return false
-	}
-	if strings.TrimSpace(r.ScopeID) == "" {
-		return false
-	}
-	switch strings.TrimSpace(r.ScopeKind) {
-	case ScopeKindUser, ScopeKindChat:
-		return true
-	default:
-		return false
-	}
-}
-
-func normalizeGatewayID(gatewayID string) string {
-	return strings.TrimSpace(gatewayID)
 }
 
 func newFeishuTimeoutContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {

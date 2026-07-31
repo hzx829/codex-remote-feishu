@@ -1,8 +1,8 @@
 # 架构
 
 > Type: `general`
-> Updated: `2026-04-22`
-> Summary: 对齐当前统一二进制入口、兼容 launcher 与实际目录结构，并补充 daemon 作为组合根的 runtime owner 收口、Feishu adapter 的 controller/gateway/projector/preview 边界、Feishu ordinary inbound 的 early ACK + gateway-local FIFO lane、orchestrator service-owned UI/runtime cluster、`control.Action` 的 request / owner-flow family 收口、`UIEvent` 的 view-kind 命名、daemon 本地 Feishu tool listener 的 MCP-native streamable HTTP 协议面、current-surface 显式图片/文件投递 contract，以及 editor 侧共享 VS Code bundle entrypoint 探测边界。
+> Updated: `2026-07-31`
+> Summary: 对齐当前统一二进制入口、兼容 launcher 与实际目录结构，并补充 daemon 作为组合根的 runtime owner 收口、Feishu adapter 的 controller/gateway/projector/preview 边界、Feishu surface identity 与 ordinary inbound planner 的单一实现、gateway-local FIFO lane、orchestrator service-owned UI/runtime cluster、`control.Action` 的 request / owner-flow family 收口、`UIEvent` 的 view-kind 命名、daemon 本地 Feishu tool listener 的 MCP-native streamable HTTP 协议面、current-surface 显式图片/文件投递 contract，以及 editor 侧共享 VS Code bundle entrypoint 探测边界。
 
 ## 1. 当前状态
 
@@ -212,6 +212,8 @@ Feishu 平台适配层，负责：
 
 因此 `LiveGateway` 不再承担 projector 的伪 owner 角色；daemon 主流程会直接持有 projector，而 preview 侧也通过显式 runtime 边界接入 controller。
 
+Feishu surface identity 的跨层 contract 由零 adapter 依赖的 `internal/feishuidentity` 单独持有。gateway、preview、daemon、state 和 orchestrator 都复用同一套四段式 `feishu:<gatewayID>:<user|chat>:<scopeID>` build / parse / validate；未知 scope 或额外分段会直接拒绝，不再由各层维护 parser 或搜索字符串片段。
+
 当前普通飞书入站的 ACK 边界已经前移：
 
 - 轻量 command / menu / 非同步回包 card action：尽早 ACK
@@ -219,6 +221,8 @@ Feishu 平台适配层，负责：
   - 先做最小 envelope 校验和 surface 路由
   - 成功进入 gateway-local FIFO lane 后立即 ACK
   - lane 内再继续做 quoted-input 补查、图片下载、转发树展开，以及后续 `control.Action -> orchestrator -> projector` 处理
+
+普通消息只保留 `PlanInboundMessageEvent -> QueuedMessageWork.parseAction` 这一条 planning/parsing 主链。同步测试通过 `HandleInboundMessageEvent` 的 capture dispatcher 复用同一生产路径，不再维护另一份同步 parser，因此 command reply target、媒体下载、quote、message index 时机和 async failure 语义不会在测试实现与生产实现之间分叉。
 
 ### 4.9 `internal/adapter/editor`
 

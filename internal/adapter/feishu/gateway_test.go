@@ -11,6 +11,7 @@ import (
 	gatewaypkg "github.com/kxn/codex-remote-feishu/internal/adapter/feishu/gateway"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkevent "github.com/larksuite/oapi-sdk-go/v3/event"
 	larkcallback "github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
@@ -366,15 +367,15 @@ func TestSurfaceForCardActionPrefersRecordedMessageSurface(t *testing.T) {
 }
 
 func TestParseSurfaceRefRequiresGatewayAwareFormat(t *testing.T) {
-	newRef, ok := ParseSurfaceRef("feishu:app-1:chat:oc_1")
+	newRef, ok := feishuidentity.ParseSurfaceRef("feishu:app-1:chat:oc_1")
 	if !ok {
 		t.Fatal("expected gateway-aware surface id to parse")
 	}
-	if newRef.GatewayID != "app-1" || newRef.ScopeKind != ScopeKindChat || newRef.ScopeID != "oc_1" {
+	if newRef.GatewayID != "app-1" || newRef.ScopeKind != feishuidentity.ScopeKindChat || newRef.ScopeID != "oc_1" {
 		t.Fatalf("unexpected new surface ref: %#v", newRef)
 	}
 
-	if _, ok := ParseSurfaceRef("feishu:user:user-1"); ok {
+	if _, ok := feishuidentity.ParseSurfaceRef("feishu:user:user-1"); ok {
 		t.Fatal("did not expect legacy surface id to parse")
 	}
 }
@@ -523,6 +524,36 @@ func TestParseMessageEventCommandPreservesGatewayID(t *testing.T) {
 	}
 	if action.ChatID != "oc_chat" || action.ActorUserID != "ou_user" || action.MessageID != "om-msg-1" {
 		t.Fatalf("unexpected command routing payload: %#v", action)
+	}
+}
+
+func TestParseMessageEventReplyCommandPreservesTargetMessageID(t *testing.T) {
+	gateway := NewLiveGateway(LiveGatewayConfig{GatewayID: "app-2"})
+	event := &larkim.P2MessageReceiveV1{
+		Event: &larkim.P2MessageReceiveV1Data{
+			Sender: &larkim.EventSender{
+				SenderId: &larkim.UserId{OpenId: stringRef("ou_user")},
+			},
+			Message: &larkim.EventMessage{
+				MessageId:   stringRef("om-msg-reply-command"),
+				ParentId:    stringRef("om-parent"),
+				ChatId:      stringRef("oc_chat"),
+				ChatType:    stringRef("group"),
+				MessageType: stringRef("text"),
+				Content:     stringRef(`{"text":" /list "}`),
+			},
+		},
+	}
+
+	action, ok, err := gateway.parseMessageEvent(t.Context(), event)
+	if err != nil {
+		t.Fatalf("parseMessageEvent returned error: %v", err)
+	}
+	if !ok || action.Kind != control.ActionListInstances {
+		t.Fatalf("expected command message to be handled, got ok=%v action=%#v", ok, action)
+	}
+	if action.TargetMessageID != "om-parent" {
+		t.Fatalf("TargetMessageID = %q, want om-parent", action.TargetMessageID)
 	}
 }
 

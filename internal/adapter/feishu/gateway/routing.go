@@ -12,6 +12,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/adapter/feishu/selectflow"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/control"
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 )
 
 func ParseCardActionTriggerEvent(env RoutingEnv, event *larkcallback.CardActionTriggerEvent) (control.Action, bool) {
@@ -654,17 +655,17 @@ func menuActionKind(eventKey string) (control.ActionKind, bool) {
 
 func surfaceID(gatewayID, chatID, fallbackUserID string) string {
 	if chatID != "" {
-		return SurfaceRef{
-			Platform:  PlatformFeishu,
-			GatewayID: normalizeGatewayID(gatewayID),
-			ScopeKind: ScopeKindChat,
+		return feishuidentity.SurfaceRef{
+			Platform:  feishuidentity.PlatformFeishu,
+			GatewayID: strings.TrimSpace(gatewayID),
+			ScopeKind: feishuidentity.ScopeKindChat,
 			ScopeID:   strings.TrimSpace(chatID),
 		}.SurfaceID()
 	}
-	return SurfaceRef{
-		Platform:  PlatformFeishu,
-		GatewayID: normalizeGatewayID(gatewayID),
-		ScopeKind: ScopeKindUser,
+	return feishuidentity.SurfaceRef{
+		Platform:  feishuidentity.PlatformFeishu,
+		GatewayID: strings.TrimSpace(gatewayID),
+		ScopeKind: feishuidentity.ScopeKindUser,
 		ScopeID:   strings.TrimSpace(fallbackUserID),
 	}.SurfaceID()
 }

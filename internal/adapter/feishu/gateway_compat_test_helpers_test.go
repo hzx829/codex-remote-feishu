@@ -73,7 +73,14 @@ func (g *LiveGateway) parseCardActionTriggerEvent(event *larkcallback.CardAction
 
 func (g *LiveGateway) parseMessageEvent(ctx context.Context, event *larkim.P2MessageReceiveV1) (control.Action, bool, error) {
 	g.ensureTestGroupMessageMentionsCurrentBot(event)
-	return gatewaypkg.ParseMessageEvent(ctx, g.inboundEnv(), event)
+	var action control.Action
+	handled := false
+	err := gatewaypkg.HandleInboundMessageEvent(ctx, g.inboundEnv(), event, nil, func(_ context.Context, dispatched control.Action) error {
+		action = dispatched
+		handled = true
+		return nil
+	})
+	return action, handled, err
 }
 
 func (g *LiveGateway) parseMessageRecalledEvent(event *larkim.P2MessageRecalledV1) (control.Action, bool) {

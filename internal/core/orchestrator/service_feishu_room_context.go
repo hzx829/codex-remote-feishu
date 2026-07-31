@@ -8,6 +8,7 @@ import (
 
 	"github.com/kxn/codex-remote-feishu/internal/core/eventcontract"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 )
 
 const feishuRoomActiveAutoNoticeCooldown = time.Minute
@@ -335,11 +336,6 @@ func surfaceIsFeishuChat(surface *state.SurfaceConsoleRecord) bool {
 	if surface.Platform != "" && surface.Platform != "feishu" {
 		return false
 	}
-	parts := strings.Split(strings.TrimSpace(surface.SurfaceSessionID), ":")
-	for i := 0; i < len(parts)-1; i++ {
-		if parts[i] == "chat" && strings.TrimSpace(parts[i+1]) != "" {
-			return true
-		}
-	}
-	return false
+	ref, ok := feishuidentity.ParseSurfaceRef(surface.SurfaceSessionID)
+	return ok && ref.IsChat()
 }

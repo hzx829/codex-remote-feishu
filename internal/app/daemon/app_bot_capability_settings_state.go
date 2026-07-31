@@ -9,17 +9,7 @@ import (
 
 func (a *App) configureBotCapabilitySettingsStateLocked(stateDir string) {
 	path := botcapabilitysettings.StatePath(stateDir)
-	store, err := botcapabilitysettings.LoadStore(path)
-	if err != nil {
-		log.Printf("load bot capability settings state failed: path=%s err=%v", path, err)
-		store = botcapabilitysettings.NewStore(path)
-	}
-	if store != nil && store.Dirty() {
-		if err := store.Save(); err != nil {
-			log.Printf("persist sanitized bot capability settings state failed: path=%s err=%v", path, err)
-		}
-	}
-	a.botCapabilitySettingsState.store = store
+	a.botCapabilitySettingsState.persistedStoreRuntimeState = loadPersistedStore("bot capability settings", path, botcapabilitysettings.LoadStore)
 	a.materializeBotCapabilitySettingsStateLocked()
 }
 
@@ -36,7 +26,7 @@ func (a *App) materializeBotCapabilitySettingsStateLocked() {
 }
 
 func (a *App) syncBotCapabilitySettingsStateLocked() {
-	if a.botCapabilitySettingsState.store == nil {
+	if !a.botCapabilitySettingsState.writable() || a.botCapabilitySettingsState.store == nil {
 		return
 	}
 	for _, record := range a.service.BotCapabilitySettings() {

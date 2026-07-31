@@ -1542,35 +1542,36 @@ daemon startup 的 vscode resume 额外规则：
    4. `thread.discovered`
    5. `thread.focused`
 2. daemon startup 时会先根据 `surface resume state` materialize latent detached surface，并恢复 `ProductMode`、`Backend`、`ClaudeProfileID` 与 `Verbosity`；`PlanMode` 不再跨 daemon 恢复；`surface resume state` 当前也携带 headless 恢复所需的 thread 元数据，而且它已经是唯一持久化恢复源。startup 不再导入独立的 `headless-restore-hints.json`。
-3. 后台恢复前置条件：
+3. `surface resume state` 只有成功载入后才会 materialize 并进入后台恢复；读取、JSON 或 schema version 失败时，daemon 会把该 store 标为 read-only degraded，不创建替代空 store、不清掉进程内已有 recovery episode，也不允许后续 sync 覆盖原文件。若状态已成功解码但 canonical sanitation 保存失败，规范化后的 entry 仍可用于 materialize/recovery，但 store 保持只读。修复文件并重新 configure（通常是重启 daemon）后才恢复持久化写入。
+4. 后台恢复前置条件：
    1. surface 当前处于 headless 主链（当前持久化 token 仍是 `ProductMode=normal`）
    2. surface 当前没有显式 attach
    3. surface 当前没有 pending headless
    4. `surface resume state` 里仍存在 `ResumeHeadless=true` 且 `ResumeThreadID` 非空的恢复目标
    5. surface recovery policy 允许后台恢复；Feishu 群聊 surface 不满足这个条件，只 materialize latent context，不会由 startup/tick 自动拉起 headless
-4. 解析顺序：
+5. 解析顺序：
    1. 先看当前 merged thread view
    2. 若 thread 不可见但 hint 仍有 `threadID + threadCWD`，允许构造 synthetic view
    3. 之后只允许落到 headless 目标，不会自动 attach 到 VS Code
-5. 若 surface 当前是 `vscode` mode，后台恢复会直接跳过，不会 attach 现有 headless，也不会启动新的 headless。
-6. 若 daemon 启动后的首轮 `threads.refresh -> threads.snapshot` 还没走完，且当前又无法从 visible/synthetic view 判定恢复目标：
+6. 若 surface 当前是 `vscode` mode，后台恢复会直接跳过，不会 attach 现有 headless，也不会启动新的 headless。
+7. 若 daemon 启动后的首轮 `threads.refresh -> threads.snapshot` 还没走完，且当前又无法从 visible/synthetic view 判定恢复目标：
    1. 保持 `R0 Detached`
    2. 静默等待
    3. 不给用户失败提示
-7. 若首轮 refresh 已完成，目标 thread 仍不可判定：
+8. 若首轮 refresh 已完成，目标 thread 仍不可判定：
    1. 保持 `R0 Detached`
    2. 发一条 “暂时无法找到之前会话” 的恢复失败提示
    3. 进入 daemon 内存态 backoff，避免重复重试噪音
-8. 后台恢复成功 attach 时：
+9. 后台恢复成功 attach 时：
    1. 不补发 thread replay
    2. 不补 thread selection changed 卡片
    3. 只发一条恢复成功 notice
-9. headless launch 失败或超时时：
+10. headless launch 失败或超时时：
    1. 清掉 pending
    2. 保持 `R0 Detached`
    3. 发恢复失败提示
    4. 进入 backoff
-10. headless launch 成功且实例连回后，如果 auto-restore exact-thread 接管失败：
+11. headless launch 成功且实例连回后，如果 auto-restore exact-thread 接管失败：
    1. 清掉 pending
    2. kill 本轮 auto-restore 拉起的 headless
    3. 保持 `R0 Detached`

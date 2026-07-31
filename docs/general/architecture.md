@@ -2,7 +2,7 @@
 
 > Type: `general`
 > Updated: `2026-07-31`
-> Summary: 对齐当前统一二进制入口、兼容 launcher 与实际目录结构，并补充 daemon 作为组合根的 runtime owner 收口、Feishu adapter 的 controller/gateway/projector/preview 边界、Feishu surface identity 与 ordinary inbound planner 的单一实现、gateway-local FIFO lane、orchestrator service-owned UI/runtime cluster、`control.Action` 的 request / owner-flow family 收口、`UIEvent` 的 view-kind 命名、daemon 本地 Feishu tool listener 的 MCP-native streamable HTTP 协议面、current-surface 显式图片/文件投递 contract，以及 editor 侧共享 VS Code bundle entrypoint 探测边界。
+> Summary: 对齐当前统一二进制入口、兼容 launcher 与实际目录结构，并补充 daemon 作为组合根的 runtime owner 收口、durable JSON store 的统一 fail-closed load policy、Feishu adapter 的 controller/gateway/projector/preview 边界、Feishu surface identity 与 ordinary inbound planner 的单一实现、gateway-local FIFO lane、orchestrator service-owned UI/runtime cluster、`control.Action` 的 request / owner-flow family 收口、`UIEvent` 的 view-kind 命名、daemon 本地 Feishu tool listener 的 MCP-native streamable HTTP 协议面、current-surface 显式图片/文件投递 contract，以及 editor 侧共享 VS Code bundle entrypoint 探测边界。
 
 ## 1. 当前状态
 
@@ -257,8 +257,11 @@ Feishu surface identity 的跨层 contract 由零 adapter 依赖的 `internal/fe
 - `managedHeadlessRuntime` 负责 daemon 侧 managed headless 进程状态
 - `cronRuntime` 负责 cron state、active runs、exit targets、scheduler scan 与 bitable/repo runtime 依赖
 - `feishuRuntime` 负责 runtime-apply、permission gap refresh、onboarding 与 time-sensitive runtime
+- `persistedStoreRuntimeState[T]` 负责 surface resume、bot capability settings、Feishu room primary、Claude workspace profile 四个 durable JSON store 的统一载入状态与可写门禁
 
 这些 runtime 仍留在 `internal/app/daemon` 同包内，但状态拥有者、receiver 和顶层调度边界已经分开；`App` 主要保留 lifecycle、依赖注入、跨 runtime 编排，以及少量必须集中托管的共享资源。
+
+四个 durable JSON store 共享同一条 fail-closed load policy：文件不存在时得到 writable 空 store；成功载入时允许 materialize 和 sync；读取、JSON、schema version 或 dirty sanitation 保存失败时进入显式 read-only degraded。纯载入失败不会创建替代空 store、不会把虚假空状态 materialize 到 orchestrator，也不会清掉现有内存 recovery episode；已成功解码但 sanitation 保存失败时仍可读取和 materialize 规范化数据，但所有后续 sync 写入都会被统一门禁。修复状态文件后，下一次 runtime configure（通常是 daemon restart）会重新载入并退出 degraded。
 
 其中 daemon 自带的本地 Feishu tool listener 当前固定监听 `127.0.0.1:9502`，对外暴露的是 MCP-native streamable HTTP 协议面，而不再是仓库自定义 `manifest/call` 路由。它继续保留：
 

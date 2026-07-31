@@ -9,17 +9,7 @@ import (
 
 func (a *App) configureFeishuRoomPrimaryStateLocked(stateDir string) {
 	path := feishuroomprimary.StatePath(stateDir)
-	store, err := feishuroomprimary.LoadStore(path)
-	if err != nil {
-		log.Printf("load feishu room primary state failed: path=%s err=%v", path, err)
-		store = feishuroomprimary.NewStore(path)
-	}
-	if store != nil && store.Dirty() {
-		if err := store.Save(); err != nil {
-			log.Printf("persist sanitized feishu room primary state failed: path=%s err=%v", path, err)
-		}
-	}
-	a.feishuRoomPrimaryState.store = store
+	a.feishuRoomPrimaryState.persistedStoreRuntimeState = loadPersistedStore("Feishu room primary", path, feishuroomprimary.LoadStore)
 	a.materializeFeishuRoomPrimaryStateLocked()
 }
 
@@ -36,7 +26,7 @@ func (a *App) materializeFeishuRoomPrimaryStateLocked() {
 }
 
 func (a *App) syncFeishuRoomPrimaryStateLocked() {
-	if a.feishuRoomPrimaryState.store == nil {
+	if !a.feishuRoomPrimaryState.writable() || a.feishuRoomPrimaryState.store == nil {
 		return
 	}
 	desired := map[string]bool{}

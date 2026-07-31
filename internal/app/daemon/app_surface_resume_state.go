@@ -29,17 +29,11 @@ const surfaceResumeRetryBackoff = 30 * time.Second
 
 func (a *App) configureSurfaceResumeStateLocked(stateDir string) {
 	path := surfaceresume.StatePath(stateDir)
-	store, err := surfaceresume.LoadStore(path)
-	if err != nil {
-		log.Printf("load surface resume state failed: path=%s err=%v", path, err)
-		store = surfaceresume.NewStore(path)
+	a.surfaceResumeRuntime.persistedStoreRuntimeState = loadPersistedStore("surface resume", path, surfaceresume.LoadStore)
+	store := a.surfaceResumeRuntime.store
+	if store == nil {
+		return
 	}
-	if store != nil && store.Dirty() {
-		if err := store.Save(); err != nil {
-			log.Printf("persist sanitized surface resume state failed: path=%s err=%v", path, err)
-		}
-	}
-	a.surfaceResumeRuntime.store = store
 	a.materializeSurfaceResumeStateLocked()
 	a.syncSurfaceResumeRecoveryStateLocked()
 	a.surfaceResumeRuntime.vscodeStartupCheckDue = storedVSCodeResumeExists(store)
@@ -102,7 +96,7 @@ func storedVSCodeResumeExists(store *surfaceresume.Store) bool {
 }
 
 func (a *App) syncSurfaceResumeStateLocked(clearTargets map[string]bool) {
-	if a.surfaceResumeRuntime.store == nil {
+	if !a.surfaceResumeRuntime.writable() || a.surfaceResumeRuntime.store == nil {
 		return
 	}
 	existing := a.surfaceResumeRuntime.store.Entries()
@@ -134,7 +128,7 @@ func (a *App) syncSurfaceResumeStateLocked(clearTargets map[string]bool) {
 }
 
 func (a *App) syncSurfaceResumeStateForInstanceLocked(instanceID string, clearTargets map[string]bool) {
-	if a.surfaceResumeRuntime.store == nil {
+	if !a.surfaceResumeRuntime.writable() || a.surfaceResumeRuntime.store == nil {
 		return
 	}
 	instanceID = strings.TrimSpace(instanceID)
@@ -167,7 +161,7 @@ func (a *App) syncSurfaceResumeStateForInstanceLocked(instanceID string, clearTa
 }
 
 func (a *App) syncSurfaceResumeStateForSurfacesLocked(surfaceIDs []string, clearTargets map[string]bool) {
-	if a.surfaceResumeRuntime.store == nil || len(surfaceIDs) == 0 {
+	if !a.surfaceResumeRuntime.writable() || a.surfaceResumeRuntime.store == nil || len(surfaceIDs) == 0 {
 		return
 	}
 	surfacesByID := map[string]*state.SurfaceConsoleRecord{}
@@ -212,7 +206,7 @@ func (a *App) syncSurfaceResumeStateForSurfacesLocked(surfaceIDs []string, clear
 }
 
 func (a *App) putSurfaceResumeEntryLocked(entry surfaceresume.Entry, now time.Time) bool {
-	if a.surfaceResumeRuntime.store == nil {
+	if !a.surfaceResumeRuntime.writable() || a.surfaceResumeRuntime.store == nil {
 		return false
 	}
 	if current, ok := a.surfaceResumeRuntime.store.Get(entry.SurfaceSessionID); ok && surfaceresume.SameEntryContent(current, entry) {
@@ -227,7 +221,7 @@ func (a *App) putSurfaceResumeEntryLocked(entry surfaceresume.Entry, now time.Ti
 }
 
 func (a *App) deleteSurfaceResumeEntryLocked(surfaceID string) bool {
-	if a.surfaceResumeRuntime.store == nil {
+	if !a.surfaceResumeRuntime.writable() || a.surfaceResumeRuntime.store == nil {
 		return false
 	}
 	surfaceID = strings.TrimSpace(surfaceID)

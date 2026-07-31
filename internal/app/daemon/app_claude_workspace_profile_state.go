@@ -8,24 +8,15 @@ import (
 
 func (a *App) configureClaudeWorkspaceProfileStateLocked(stateDir string) {
 	path := claudeworkspaceprofile.StatePath(stateDir)
-	store, err := claudeworkspaceprofile.LoadStore(path)
-	if err != nil {
-		log.Printf("load claude workspace profile state failed: path=%s err=%v", path, err)
-		store = claudeworkspaceprofile.NewStore(path)
-	}
-	if store != nil && store.Dirty() {
-		if err := store.Save(); err != nil {
-			log.Printf("persist sanitized claude workspace profile state failed: path=%s err=%v", path, err)
-		}
-	}
-	a.claudeWorkspaceProfileState.store = store
+	a.claudeWorkspaceProfileState.persistedStoreRuntimeState = loadPersistedStore("Claude workspace profile", path, claudeworkspaceprofile.LoadStore)
+	store := a.claudeWorkspaceProfileState.store
 	if store != nil {
 		a.service.MaterializeClaudeWorkspaceProfileSnapshots(store.Entries())
 	}
 }
 
 func (a *App) syncClaudeWorkspaceProfileStateLocked() {
-	if a.claudeWorkspaceProfileState.store == nil {
+	if !a.claudeWorkspaceProfileState.writable() || a.claudeWorkspaceProfileState.store == nil {
 		return
 	}
 	existing := a.claudeWorkspaceProfileState.store.Entries()

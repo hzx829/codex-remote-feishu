@@ -36,7 +36,7 @@ type vscodeMigrationFlowRecord struct {
 }
 
 type surfaceResumeRuntimeState struct {
-	store                       *surfaceresume.Store
+	persistedStoreRuntimeState[*surfaceresume.Store]
 	recovery                    map[string]*surfaceResumeRecoveryState
 	groupOnDemandContinuations  map[string]*groupOnDemandResumeContinuation
 	vscodeMigrationFlows        map[string]*vscodeMigrationFlowRecord
@@ -56,15 +56,15 @@ type groupOnDemandResumeContinuation struct {
 }
 
 type claudeWorkspaceProfileRuntimeState struct {
-	store *claudeworkspaceprofile.Store
+	persistedStoreRuntimeState[*claudeworkspaceprofile.Store]
 }
 
 type botCapabilitySettingsRuntimeState struct {
-	store *botcapabilitysettings.Store
+	persistedStoreRuntimeState[*botcapabilitysettings.Store]
 }
 
 type feishuRoomPrimaryRuntimeState struct {
-	store *feishuroomprimary.Store
+	persistedStoreRuntimeState[*feishuroomprimary.Store]
 }
 
 type daemonAsyncRuntimeState struct {

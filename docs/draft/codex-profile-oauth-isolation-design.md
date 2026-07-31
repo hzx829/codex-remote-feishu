@@ -163,10 +163,12 @@ type CodexProfileSummary struct {
 说明：
 
 - `CodexAPIProfileSecretConfig` 和 `CodexProfileSummary` 必须是不同类型，禁止通过清空 `APIKey` 后复用 secret-bearing struct 作为响应。
-- `Revision` 是单调递增的启动合同版本。名称、端点、Key、模型或推理强度变化都必须递增。
+- `Revision` 是 Profile 定义的单调递增版本。名称、端点、Key、模型或推理强度变化都必须递增。
 - OAuth/native Profile 不进入用户可写 `CodexAPIProfileSecretConfig`；API 返回时由 catalog projector 合成只读 summary。
 - `ReviewModel` 对应 Codex 的 `review_model`，它是 Codex 最接近 Claude `smallModel` 的稳定辅助模型字段，但 Web 文案使用“审阅模型”，不伪装成完全相同的语义。
 - API Key 仅存在 daemon 的 secret-bearing config 中。orchestrator、surface snapshot、instance hello 和 Web summary 都不得携带它。
+
+Profile 定义 Revision 不能单独代表最终运行合同。`自动`模型、推理默认值和 Codex capability 可能在 Profile 没有编辑时发生变化，因此 resolver 还必须生成独立的 `ResolutionRevision` 和无歧义的 `RuntimeContractID`。两者都只基于非敏感的解析结果和 capability 代次，不包含 API Key、token、完整账号或凭据摘要。
 
 ### 6.3 只读 OAuth 描述符
 
@@ -280,15 +282,15 @@ resolver 最终必须追加完整的目标模型配置：
 
 只覆盖 `model_provider` 不能形成隔离。Codex 配置合并对 `model` / `review_model` / `model_reasoning_effort` 采用“override 优先，否则继承 base config”，且空字符串不是清除值；因此 OAuth/API Profile 都不能让未填写字段自然落回用户本机配置。
 
-非 native Profile 在进入 instance contract 前必须得到完整的有效值：
+非 native Profile 在进入 instance contract 前必须得到完整的有效值，但 OAuth 与普通 API Provider 的能力并不对称：
 
-1. 主模型优先使用 API Profile 显式值；没有显式值时，从使用目标 Provider/认证启动的短生命周期 probe 调用 `model/list`，选择 `isDefault=true` 的模型。
-2. 推理强度优先使用 API Profile 显式值；没有显式值时，使用有效主模型对应的 `defaultReasoningEffort`。
-3. 审阅模型优先使用 API Profile 显式值；没有显式值时，明确回退到本 Profile 的有效主模型，而不是继承 base config。
-4. OAuth Profile 是只读项，三项都由同一次 OAuth/model probe 解析；probe 结果只缓存非敏感 catalog 字段，并按 OAuth Revision 失效。
-5. 任一必需值无法解析或显式值不在已知支持范围时，返回 `profile_model_unresolved` / `profile_reasoning_unsupported`，不启动实例。
+1. OAuth Profile 由同一次 OAuth/model probe 调用 `model/list`，选择 `isDefault=true` 的模型和该模型的 `defaultReasoningEffort`；probe 结果只缓存非敏感 catalog 字段，并按 OAuth/Resolution Revision 失效。
+2. API Profile 当前不能把 Codex `model/list` 当作目标 Provider 的可信目录。上游只在 ChatGPT/Codex backend 或 Provider 配置了 command auth 时刷新远端 `/models`；本系统使用的 `env_key` API Provider 不满足该条件。
+3. 上游当前 `models_cache.json` 也没有按 Provider identity 隔离，源码明确保留了对应 TODO；切换 Provider 后的 `model/list` 可能来自内置目录或另一个 Provider 的共享缓存。
+4. 审阅模型没有显式值时，可以确定性回退到本 Profile 的有效主模型，因为该规则不依赖远端目录。
+5. 任一必需值无法解析或显式值不在允许枚举时，返回 `profile_definition_incomplete` / `profile_model_unresolved` / `profile_reasoning_unsupported`，不启动实例。
 
-API Profile 的模型和推理强度在 Web 中仍可显示为“自动”；这里的“自动”严格指目标 Profile probe 的 catalog 默认值，不是“沿用本机默认”。实例启动、`thread/start`、`thread/resume` 和 restart restore 都使用这份已闭包投影。
+因此设计不能继续承诺 API Profile 的“自动（目标 Profile 默认）”。当前推荐合同是 API Profile 的主模型和推理强度必填，审阅模型可选且空值等于主模型；OAuth Profile 继续显示只读的自动解析结果。若产品坚持 API Profile 支持自动值，只能新增 Remote 自己维护的 Provider `/models` 探测和适配层，但第三方端点没有统一的默认模型、默认推理和能力语义，仍需定义失败时不得回退的产品行为。该取舍记录在 `产品待拍板`，拍板前 API Profile 字段合同不进入实现闭包。
 
 ### 8.4 环境清理
 
@@ -304,6 +306,47 @@ OAuth 和 API Profile 子进程都不能简单继承所有认证环境：
 
 `cli_auth_credentials_store="ephemeral"` 和 `thread/resume.modelProvider` 必须进入 Codex capability/version preflight。上游当前 `main` 已具备这些能力；若实际机器版本过旧或无法证明支持，API Profile 启动应明确失败并提示升级，不能降级为共享 OAuth 存储。
 
+### 8.6 稳定架构端口
+
+目标架构只承诺以下领域端口，不承诺当前 service、package 或文件名。并行重构稳定后，实现应先寻找最新 owner，再把这些端口落到现有边界；不能反过来把旧 `CodexProvider*` 载体当作目标设计。
+
+| 端口 | 唯一职责 | 主要输入 | 主要输出 / 副作用 |
+| --- | --- | --- | --- |
+| `CodexProfileCatalog` | 管理 API Profile 定义并合成 native/oauth 只读项 | create/update/delete/list、OAuth 描述符 | secret config、redacted summary、Definition Revision |
+| `CodexOAuthProbe` | 通过 app-server 观察当前原生 ChatGPT 登录 | 显式 probe trigger、原始 `CODEX_HOME` | `detected/missing/unknown` 描述符；不写凭据、不自动重试 |
+| `CodexRuntimeResolver` | 把 Profile 定义解析成完整运行合同和私有启动材料 | Profile ID、Definition Revision、capability/model probe | public runtime contract、secret launch material、稳定错误 |
+| `CodexProfileSelection` | 统一修改 bot 默认、当前 route pin 和 workspace+Profile 显式 override | 私聊切换、workspace route、model/reasoning 命令 | desired selection；禁止 surface 或 instance 反向写回 |
+| `CodexInstanceContract` | 冻结并比较 managed instance 的完整启动身份 | resolved runtime contract | desired/actual compatibility、restart reason |
+| `CodexResumePolicy` | 根据合同迁移类型生成完整 resume 参数 | target contract、thread observed state、override snapshot | `preserve_thread_settings` 或 `apply_target_profile`；无隐式 fallback |
+
+端口之间的依赖方向固定为：Catalog/Probe -> Runtime Resolver -> Selection/Instance -> Resume Policy。Web 和飞书只调用 Catalog/Selection 的脱敏 DTO；wrapper/launcher 只接收 resolver 的私有启动材料；translator 只接收已经解析完成的 public runtime contract 和 resume policy 结果。
+
+`CodexRuntimeResolver` 的公共和私有输出必须是不同类型：
+
+```go
+type CodexRuntimeContract struct {
+    ProfileID          string
+    ProfileRevision    uint64
+    ResolutionRevision uint64
+    RuntimeContractID  string
+    Kind               CodexProfileKind
+    ModelProviderID    string
+    Model              string
+    ReviewModel        string
+    ReasoningEffort    string
+    CapabilitySet      string
+}
+
+type CodexSecretLaunchMaterial struct {
+    CLIOverrides []string
+    ChildEnv     []string
+}
+```
+
+`ResolutionRevision` 由独立的非敏感 resolution state 管理。state 以 `ProfileID + ProfileRevision` 为 key，保存上一次成功闭包的 public contract；规范化结果或 capability generation 变化时单调递增。probe 的 `unknown` 不得覆盖最后一次成功结果，但该旧结果也不能被当作当前可启动证据。Profile 定义 Revision 变化时开启新的 resolution generation，不复用旧 Profile Definition 下的自动值。
+
+`RuntimeContractID` 使用版本化 canonical encoding 计算，例如 `v1:<sha256(public-contract)>`，必须跨 daemon 重启稳定。它用于相等性判断和诊断关联，不是安全凭据、不作为跨机器身份，也不能替代 Definition/Resolution Revision 的持久语义。
+
 ## 9. 实例合同与多实例隔离
 
 ### 9.1 选择作用域
@@ -315,14 +358,27 @@ Profile catalog 全局共享，但 Profile 选择不是全局开关：
 - workspace 恢复状态持久化自己的 Profile ID/Revision，因此 daemon 重启后仍恢复原合同。
 - 这里的“临时切换”指不修改 Profile 内容、不写用户 Codex 配置，也不影响其他实例；切回原 Profile 即恢复原连接合同。
 
+这里存在两个不同事实，不能互相覆盖：
+
+- `bot default`：未来新建 workspace 的默认 Profile，只由 bot capability/selection owner 持久化。
+- `route pin`：当前 workspace/managed instance 已经选择并解析过的 Profile 合同，用于继续该 workspace 和 daemon recovery；它不反向改变其他 workspace。
+
+Profile 切换命令通过 `CodexProfileSelection` 同时更新当前 bot default 和当前 route pin；当前没有 workspace 时只更新 bot default。surface 字段只是本次交互投影，instance hello 只是 actual state，二者都不是 desired selection 写源。route pin 保存 Profile ID、最后一次解析 Revision 和 `RuntimeContractID`；恢复时仍需重新 resolver。若定义或解析结果已经变化，旧 pin 只能用于判定 `apply_target_profile`，不能要求系统重建已经不存在的旧 secret/runtime 合同。
+
 ### 9.2 运行实例合同
 
-实例 hello 和 desired contract 从单一 ID 扩展为：
+实例 hello 和 desired contract 从单一 ID 扩展为完整运行身份：
 
 ```text
 CodexProfileID
 CodexProfileRevision
+CodexResolutionRevision
+CodexRuntimeContractID
 CodexModelProviderID
+CodexModel
+CodexReviewModel
+CodexReasoningEffort
+CodexCapabilitySet
 ```
 
 兼容判定必须同时满足：
@@ -330,13 +386,17 @@ CodexModelProviderID
 - backend 为 Codex；
 - Profile ID 相同；
 - Profile Revision 相同；
+- Resolution Revision 和 Runtime Contract ID 相同；
 - 实际 Model Provider ID 与目标投影一致。
+- 主模型、审阅模型、推理强度和所需 capability 均与目标合同一致。
 
 Revision 来源必须覆盖三类 Profile：
 
 - `api`：受管配置每次语义变更后单调递增。
 - `oauth`：脱敏账号身份变化或 `detected <-> missing` 状态确认迁移时递增，不因普通 token 刷新或短暂 `unknown` 变化。
 - `native`：daemon 根据配置源代次和脱敏后的有效 Provider/模型/启动参数推进 Revision；若 native 依赖同一 OAuth，再纳入 OAuth Revision。原始配置、凭据及其可离线猜测的无盐摘要都不能写入状态；无法证明合同未变化时生成新 Revision，允许多一次重启但不能错误复用。
+
+Resolution Revision 在同一 Profile Definition 下独立推进：可信目标 catalog 的默认值、有效 review model、默认 reasoning 或 capability 代次发生变化时递增。OAuth 以及未来明确支持可信目录的 Profile 使用这套机制；采用显式必填模型/推理的 API Profile 只在 Definition Revision 或 capability 变化时形成新运行合同。
 
 因此：
 
@@ -362,12 +422,14 @@ Revision 来源必须覆盖三类 Profile：
 
 Codex 规定：只要 resume 显式传入 `modelProvider`，持久化的模型和推理强度 fallback 也会一起关闭。因此不能只补一个字段，还必须定义恢复策略：
 
-1. 同 Profile 普通重启：显式传目标 `modelProvider`，同时携带已观测线程模型/推理强度，保持用户当前会话设置。
-2. 切换到其他 Profile：显式传目标 `modelProvider`，使用目标 Profile 默认模型/推理强度。
+1. 同一 Runtime Contract 的普通重启：显式传目标 `modelProvider`，同时携带已观测线程模型/推理强度，保持用户当前会话设置。
+2. Profile ID、Definition Revision、Resolution Revision 或 Runtime Contract 任一变化：显式传目标 `modelProvider`，使用目标 Profile 默认模型/推理强度。
 3. 目标 Profile 在当前 workspace 存在用户显式 `/model`、`/reasoning` 快照：该快照覆盖 Profile 的闭包默认值。
 4. Profile 字段选择“自动”时：使用目标 probe 已闭包的 catalog 默认值，不交给 base config 解析，也不注入产品硬编码默认值。
 
 这要求 thread catalog/translator 继续携带 `modelProvider` observed state，并让 resume command 明确区分 `preserve_thread_settings` 与 `apply_target_profile`。
+
+`CodexResumePolicy` 必须一次性决定 Provider、model 和 reasoning bundle。调用方不能先补 `modelProvider`，再让 translator 或 Codex base config 猜剩余字段。目标模型不在新 Profile catalog、reasoning 不受支持或 observed state 不完整时，返回结构化错误或使用目标 Profile 闭包值；禁止退回旧 Provider。
 
 ### 10.3 Profile 级临时覆盖
 
@@ -383,12 +445,14 @@ Codex 规定：只要 resume 显式传入 `modelProvider`，持久化的模型�
 1. 校验目标 Profile 存在且可用。
 2. OAuth/API Profile 分别完成 auth preflight 和 runtime projection。
 3. 保存当前 workspace + Profile 的显式 override 快照。
-4. 记录目标 desired Profile ID/Revision。
+4. 提交目标 desired Profile ID/Revision，并将当前 route 标为 `switching`；从这一步开始失败也不自动回退旧 Profile。
 5. 停止不兼容的 managed instance，但不操作用户手动启动的 VS Code/CLI 实例。
 6. 使用目标 Profile 启动新 managed instance。
 7. 恢复原来的 route intent：`unbound`、`new_thread_ready` 或 exact-thread。
 8. exact-thread 使用 `apply_target_profile` resume 策略。
-9. attach 成功后提交切换状态；失败则保留目标选择和结构化根因，不无限重试、不回退旧 Profile。
+9. attach 成功后把 route actual contract 标为 `active`；失败则保留 desired 目标，把 actual 标为 `failed/unavailable` 并保存结构化根因，不无限重试、不回退旧 Profile。
+
+`desired` 与 `actual` 必须分别投影。菜单勾选和“当前选择”来自 desired；状态文案来自 actual：切换中显示“正在切换”，失败显示“已选择但未生效”，成功后才显示“正在使用”。用户再次选择同一 Profile 属于显式重试，会创建新的 recovery episode；后台 tick 不能仅因为 actual 仍是 failed 自动重放。
 
 Profile 切换失败必须区分：
 
@@ -449,9 +513,9 @@ OAuth 不可用时保留在列表中并显示状态，不直接消失。列表�
 1. 名称，必填；
 2. 端点地址，必填；必须是绝对 `http/https` URL，不允许 userinfo、query 或 fragment，本地地址可以使用 `http`；
 3. API Key，创建时必填，更新时留空表示保留；
-4. 主模型，可选，空值显示为“自动（目标 Profile 默认）”；
+4. 主模型：OAuth 只读显示自动解析结果；API Profile 当前推荐为必填，等待产品决策确认；
 5. 审阅模型，可选，空值明确使用同一 Profile 的有效主模型；
-6. 推理强度，可选，空值显示为“自动（目标模型默认）”，候选来自当前支持的 Codex 配置枚举。
+6. 推理强度：OAuth 只读显示目标模型默认值；API Profile 当前推荐为必填，候选来自当前支持的 Codex 配置枚举，等待产品决策确认。
 
 API Key 只显示 `已保存` 状态，不回填。保存成功后递增 Revision；若有旧实例，反馈为“新配置将在下次使用该 Profile 时生效”，不承诺中断当前任务。
 
@@ -530,6 +594,40 @@ POST   /api/admin/codex/profiles/oauth/refresh
 
 该分界必须通过 capability/fixture 判断，不能依赖未经证明的版本号。兼容读取只用于解析用户现有 native 启动参数和实际 Provider ID，不把任意原生 Profile 自动导入可编辑 Web catalog。
 
+### 14.4 状态所有权
+
+| 事实 | 唯一写入 owner | 持久化 | 允许的消费者 | 禁止行为 |
+| --- | --- | --- | --- | --- |
+| API Profile secret 定义 | Profile Catalog | app config，权限收紧 | Runtime Resolver | secret struct 进入 HTTP/orchestrator/log |
+| OAuth 脱敏描述符 | OAuth Probe coordinator | 独立 runtime state | Catalog、Web summary、preflight | 保存 token 或由 `unknown` 删除 Profile |
+| native 有效描述符 | Runtime Resolver | 非敏感 revision/cache | Catalog、Instance Contract | 修改用户原生 config |
+| bot default Profile | Profile Selection | bot capability/selection state | 新 workspace、菜单状态 | surface/instance observed state 反向覆盖 |
+| 当前 route pin | Profile Selection | durable resume/route state | recovery、Instance Contract | 作为其他 workspace 的默认值 |
+| workspace+Profile 显式 override | Profile Selection | key=`backend+workspace+profile` | queue freeze、Resume Policy | 从 thread observed state 自动写入 |
+| queue frozen runtime contract | queue owner | queue 生命周期 | dispatch | 入队后随 Profile 编辑变化 |
+| pending/active instance contract | runtime manager | runtime 生命周期/必要 recovery ref | compatibility、诊断 | 携带 secret launch material |
+| thread observed Provider/model/reasoning | translator/thread catalog | thread catalog 语义 | Resume Policy、展示 | 直接覆盖 desired selection |
+| surface Profile 字段 | projector | 可重建投影 | 当前交互 | 成为独立 SSOT |
+
+bot default 和 route pin 可以持有相同 Profile ID，但语义不同：前者决定未来默认，后者证明当前 workspace 上次使用的解析合同。任何物理存储实现都必须通过 `CodexProfileSelection` 单一 mutation owner；若并行重构后它们仍分属不同文件，需提供带代次的幂等事务和 crash recovery，不能由多个 handler 顺序裸写。
+
+### 14.5 Expand / migrate / cutover
+
+迁移必须在 daemon 启动写流量开放前由单一 coordinator 执行：
+
+1. `expand`：新增 `codex.profiles[]`、OAuth descriptor、Profile selection 和完整 runtime contract schema；旧运行时仍不读取新字段。
+2. `plan`：只读加载并校验 config、bot capability、surface/route resume 和 workspace override 旧状态，生成确定性迁移计划；任何损坏或冲突先进入 degraded 诊断，不边读边改。
+3. `migrate`：`codex.providers[]` 一对一变成 `kind=api`、Revision=1；旧 `default` 只映射到 `native`，绝不因为检测到 OAuth 自动改成 `oauth`；旧 Provider ID 在 bot default、route pin 和 override key 中映射到同 ID Profile。
+4. `commit`：先原子写各新 store，再最后写 migration generation/commit marker。中途崩溃时下次按同一输入幂等重算；marker 未提交前不开放 Profile mutation 或 managed Codex launch。
+5. `cutover`：所有 canonical reader/writer 只使用 Profile schema；旧字段只允许迁移器读取，旧 API/命令 alias 通过 canonical Profile service 适配，不能继续写旧 SSOT。
+6. `contract`：兼容窗口结束后删除旧字段读取、transport alias 和 frozen legacy evidence，并提升 schema version。
+
+迁移冲突不能用“最后一个 surface 获胜”处理。若同一个 canonical bot+workspace 的旧状态出现多个不同 Provider ID，迁移器保留 bot default，但把该 route 标成 `profile_selection_conflict`，等待用户重新选择；不能无证据覆盖其中一个。迁移失败只降级 Codex Profile 子系统，Claude、Web 只读诊断和其它不依赖该状态的能力保持可用。
+
+兼容窗口内允许保留一份 0600 权限的迁移前备份或 frozen legacy evidence 供回滚诊断，但新写入不能更新它。旧 daemon 降级读取到陈旧 Provider 配置不属于受支持的无损路径；发布说明必须要求使用备份回退，不能通过永久双写换取降级兼容。
+
+旧 transport 的适配规则固定为：旧 Provider list 只投影 `native/default` 和 `api` 项，不伪造 OAuth 为可编辑 Provider；旧 create/update/delete 映射 canonical API Profile；隐藏 `/codexprovider` alias 将 ID 交给 canonical selection service。兼容层不得定义自己的验证、持久化或启动逻辑。
+
 ## 15. 安全与诊断
 
 - 配置文件权限继续使用仅当前用户可读写模式。
@@ -538,6 +636,24 @@ POST   /api/admin/codex/profiles/oauth/refresh
 - Profile runtime projection 的 secret env 与公共合同使用不同类型，避免误序列化。
 - 认证失败必须保留底层错误分类，但用户主文案不暴露 token 或内部路径。
 - 相同 Profile 启动失败是一次恢复 episode；只有用户重试、Profile 修改、OAuth 状态变化或目标变化才重新执行。
+
+稳定错误码和允许重试事件如下：
+
+| 错误码 | 含义 | 允许的再次执行触发 |
+| --- | --- | --- |
+| `oauth_missing` | 已确认没有 ChatGPT 登录 | 用户重新登录后刷新、再次选择 |
+| `oauth_probe_unknown` | probe 超时、协议或本机配置读取失败 | 用户刷新、daemon 重启、相关配置变化 |
+| `profile_secret_missing` | API Profile 缺少可用 Key | Profile 更新 |
+| `profile_definition_incomplete` | API Profile 缺少必需的模型或推理字段 | Profile 更新 |
+| `profile_model_unresolved` | OAuth/可信目标 catalog 无法闭包模型 | 用户重试、Profile/catalog/capability 变化 |
+| `profile_reasoning_unsupported` | 目标模型不支持请求档位 | Profile/override 修改 |
+| `codex_capability_unsupported` | 本机 Codex 不支持隔离或 resume 合同 | Codex 升级 |
+| `provider_registration_failed` | 目标 Provider 配置未被 app-server 接受 | Profile 修正、用户重试 |
+| `thread_busy` | thread 被其它 app-server 占用 | 目标占用变化后用户重试 |
+| `thread_missing` / `workspace_missing` | 恢复目标不存在 | 用户重新选择 route |
+| `profile_selection_conflict` | 迁移发现同一 route 多个旧选择 | 用户重新选择 Profile |
+
+后台计时器不能因为这些错误原样重复 launch/resume 或重复发通知。一次 episode 内只保留首个结构化原因和最新状态；只有表中明确的输入变化或用户动作创建新 episode。
 
 ## 16. 实施分段
 
@@ -627,5 +743,16 @@ POST   /api/admin/codex/profiles/oauth/refresh
 - `codex-rs/app-server-protocol/src/protocol/v2/thread.rs`：`thread/resume` 支持显式 `modelProvider`、`model` 并返回实际 `modelProvider`、模型和推理强度。
 - `codex-rs/app-server/src/request_processors/thread_processor.rs` 及其测试：只要显式覆盖 model、model provider 或 reasoning，持久化模型/Provider/推理三项就整体停止回填，因此跨 Profile 恢复必须成组决定这些字段。
 - `codex-rs/core/src/config/mod.rs`：模型类配置采用 override 优先、否则继承 base config 的合并方式，不能用空字符串表达“清除”。
-- `codex-rs/app-server-protocol/src/protocol/v2/model.rs`：`model/list` 明确返回默认模型标记、默认推理强度和支持档位，可作为非 native Profile 默认值闭包的协议依据。
+- `codex-rs/app-server-protocol/src/protocol/v2/model.rs`：`model/list` 明确返回默认模型标记、默认推理强度和支持档位；该协议只在目录来源可信时可用于闭包。
+- `codex-rs/models-manager/src/manager.rs`、`codex-rs/model-provider-info/src/lib.rs`：远端 model refresh 只对 Codex backend 或 command-auth Provider 生效；普通 `env_key` Provider 不刷新目标 `/models`，且共享 `models_cache.json` 尚未按 Provider identity 隔离。因此 API Profile 不能依靠 app-server `model/list` 实现可信的“自动”模型闭包。
 - `codex-rs/cli/src/lib.rs`：新版 `--profile` 从 `$CODEX_HOME/<name>.config.toml` 叠加配置；旧 `[profiles.<name>]` 只能作为兼容读取来源。
+
+## 21. 产品待拍板
+
+### API Profile 是否允许“自动”模型与推理
+
+- 触发原因：上游 `model/list` 对普通 `env_key` 自定义 Provider 不是可信的目标目录，并可能读取未按 Provider 隔离的共享 cache。
+- 方案 A（推荐）：API Profile 的主模型和推理强度必填；审阅模型可空并等于主模型。OAuth Profile 保留只读自动解析。
+- 方案 B：Remote 自行请求和适配第三方 `/models`，只在能证明默认模型与推理元数据完整时允许自动；端点不支持时仍要求用户补齐字段。
+- 不采用：把 Codex 内置/共享缓存中的默认值当作 API Profile 自动值，因为这会重新引入跨 Provider 配置泄漏。
+- 需要拍板：API Profile 首版采用方案 A，还是把方案 B 的探测适配纳入首版范围。

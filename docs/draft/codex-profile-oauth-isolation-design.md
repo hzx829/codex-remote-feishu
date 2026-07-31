@@ -290,7 +290,7 @@ resolver 最终必须追加完整的目标模型配置：
 4. 审阅模型没有显式值时，可以确定性回退到本 Profile 的有效主模型，因为该规则不依赖远端目录。
 5. 任一必需值无法解析或显式值不在允许枚举时，返回 `profile_definition_incomplete` / `profile_model_unresolved` / `profile_reasoning_unsupported`，不启动实例。
 
-因此设计不能继续承诺 API Profile 的“自动（目标 Profile 默认）”。当前推荐合同是 API Profile 的主模型和推理强度必填，审阅模型可选且空值等于主模型；OAuth Profile 继续显示只读的自动解析结果。若产品坚持 API Profile 支持自动值，只能新增 Remote 自己维护的 Provider `/models` 探测和适配层，但第三方端点没有统一的默认模型、默认推理和能力语义，仍需定义失败时不得回退的产品行为。该取舍记录在 `产品待拍板`，拍板前 API Profile 字段合同不进入实现闭包。
+因此 API Profile 不支持“自动（目标 Profile 默认）”：主模型和推理强度必填，审阅模型可选且空值等于主模型。OAuth Profile 继续显示只读的自动解析结果。首版不实现 Remote 自己维护的第三方 Provider `/models` 探测；未来若增加，只能在能证明默认模型和推理元数据完整时开放自动值，且失败不得回退到 Codex 内置目录或共享缓存。
 
 ### 8.4 环境清理
 
@@ -513,9 +513,9 @@ OAuth 不可用时保留在列表中并显示状态，不直接消失。列表�
 1. 名称，必填；
 2. 端点地址，必填；必须是绝对 `http/https` URL，不允许 userinfo、query 或 fragment，本地地址可以使用 `http`；
 3. API Key，创建时必填，更新时留空表示保留；
-4. 主模型：OAuth 只读显示自动解析结果；API Profile 当前推荐为必填，等待产品决策确认；
+4. 主模型：OAuth 只读显示自动解析结果；API Profile 必填；
 5. 审阅模型，可选，空值明确使用同一 Profile 的有效主模型；
-6. 推理强度：OAuth 只读显示目标模型默认值；API Profile 当前推荐为必填，候选来自当前支持的 Codex 配置枚举，等待产品决策确认。
+6. 推理强度：OAuth 只读显示目标模型默认值；API Profile 必填，候选来自当前支持的 Codex 配置枚举。
 
 API Key 只显示 `已保存` 状态，不回填。保存成功后递增 Revision；若有旧实例，反馈为“新配置将在下次使用该 Profile 时生效”，不承诺中断当前任务。
 
@@ -747,12 +747,12 @@ bot default 和 route pin 可以持有相同 Profile ID，但语义不同：前�
 - `codex-rs/models-manager/src/manager.rs`、`codex-rs/model-provider-info/src/lib.rs`：远端 model refresh 只对 Codex backend 或 command-auth Provider 生效；普通 `env_key` Provider 不刷新目标 `/models`，且共享 `models_cache.json` 尚未按 Provider identity 隔离。因此 API Profile 不能依靠 app-server `model/list` 实现可信的“自动”模型闭包。
 - `codex-rs/cli/src/lib.rs`：新版 `--profile` 从 `$CODEX_HOME/<name>.config.toml` 叠加配置；旧 `[profiles.<name>]` 只能作为兼容读取来源。
 
-## 21. 产品待拍板
+## 21. 产品决策记录
 
 ### API Profile 是否允许“自动”模型与推理
 
 - 触发原因：上游 `model/list` 对普通 `env_key` 自定义 Provider 不是可信的目标目录，并可能读取未按 Provider 隔离的共享 cache。
-- 方案 A（推荐）：API Profile 的主模型和推理强度必填；审阅模型可空并等于主模型。OAuth Profile 保留只读自动解析。
-- 方案 B：Remote 自行请求和适配第三方 `/models`，只在能证明默认模型与推理元数据完整时允许自动；端点不支持时仍要求用户补齐字段。
-- 不采用：把 Codex 内置/共享缓存中的默认值当作 API Profile 自动值，因为这会重新引入跨 Provider 配置泄漏。
-- 需要拍板：API Profile 首版采用方案 A，还是把方案 B 的探测适配纳入首版范围。
+- 决策：采用方案 A。API Profile 的主模型和推理强度必填；审阅模型可空并等于主模型。OAuth Profile 保留只读自动解析。
+- 首版非目标：Remote 不自行请求或适配第三方 `/models`，也不把 Codex 内置/共享缓存中的默认值当作 API Profile 自动值。
+- 后续演进：只有在第三方目录能提供可验证的默认模型和推理元数据时，才允许单独设计自动探测；不支持或探测失败仍要求用户补齐字段。
+- 决策时间：2026-07-31。

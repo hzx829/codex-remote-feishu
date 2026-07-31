@@ -34,6 +34,8 @@ func (a *App) configureSurfaceResumeStateLocked(stateDir string) {
 	if store == nil {
 		return
 	}
+	a.reconcileFeishuRoomWorkspaceStateLocked(store.Entries())
+	a.materializeFeishuRoomStateLocked()
 	a.materializeSurfaceResumeStateLocked()
 	a.syncSurfaceResumeRecoveryStateLocked()
 	a.surfaceResumeRuntime.vscodeStartupCheckDue = storedVSCodeResumeExists(store)
@@ -254,7 +256,8 @@ func (a *App) currentSurfaceResumeEntryLocked(surface *state.SurfaceConsoleRecor
 		return surfaceresume.Entry{}, false
 	}
 	if !clearResumeTarget {
-		if target, ok := a.currentSurfaceResumeTargetLocked(surface); ok {
+		target, effectiveWorkspaceKey, hasTarget := a.currentSurfaceResumeTargetAndWorkspaceLocked(surface)
+		if hasTarget {
 			entry.ResumeInstanceID = target.ResumeInstanceID
 			entry.ResumeThreadID = target.ResumeThreadID
 			entry.ResumeThreadTitle = target.ResumeThreadTitle
@@ -263,13 +266,22 @@ func (a *App) currentSurfaceResumeEntryLocked(surface *state.SurfaceConsoleRecor
 			entry.ResumeRouteMode = target.ResumeRouteMode
 			entry.ResumeHeadless = target.ResumeHeadless
 		} else if previous, ok := a.surfaceResumeRuntime.store.Get(entry.SurfaceSessionID); ok {
-			entry.ResumeInstanceID = previous.ResumeInstanceID
-			entry.ResumeThreadID = previous.ResumeThreadID
-			entry.ResumeThreadTitle = previous.ResumeThreadTitle
-			entry.ResumeThreadCWD = previous.ResumeThreadCWD
-			entry.ResumeWorkspaceKey = previous.ResumeWorkspaceKey
-			entry.ResumeRouteMode = previous.ResumeRouteMode
-			entry.ResumeHeadless = previous.ResumeHeadless
+			if previousSurfaceResumeTargetMatchesWorkspace(previous, effectiveWorkspaceKey) {
+				entry.ResumeInstanceID = previous.ResumeInstanceID
+				entry.ResumeThreadID = previous.ResumeThreadID
+				entry.ResumeThreadTitle = previous.ResumeThreadTitle
+				entry.ResumeThreadCWD = previous.ResumeThreadCWD
+				entry.ResumeWorkspaceKey = previous.ResumeWorkspaceKey
+				entry.ResumeRouteMode = previous.ResumeRouteMode
+				entry.ResumeHeadless = previous.ResumeHeadless
+			} else {
+				log.Printf(
+					"drop stale surface resume fallback: surface=%s previous_workspace=%s effective_workspace=%s",
+					entry.SurfaceSessionID,
+					state.ResolveWorkspaceKey(previous.ResumeWorkspaceKey, previous.ResumeThreadCWD),
+					effectiveWorkspaceKey,
+				)
+			}
 		}
 	}
 	normalized, ok := surfaceresume.NormalizeEntry(entry)
@@ -277,8 +289,13 @@ func (a *App) currentSurfaceResumeEntryLocked(surface *state.SurfaceConsoleRecor
 }
 
 func (a *App) currentSurfaceResumeTargetLocked(surface *state.SurfaceConsoleRecord) (surfaceResumeTarget, bool) {
+	target, _, ok := a.currentSurfaceResumeTargetAndWorkspaceLocked(surface)
+	return target, ok
+}
+
+func (a *App) currentSurfaceResumeTargetAndWorkspaceLocked(surface *state.SurfaceConsoleRecord) (surfaceResumeTarget, string, bool) {
 	if surface == nil {
-		return surfaceResumeTarget{}, false
+		return surfaceResumeTarget{}, "", false
 	}
 	snapshot := a.service.SurfaceSnapshot(surface.SurfaceSessionID)
 	workspaceKey := ""
@@ -313,7 +330,7 @@ func (a *App) currentSurfaceResumeTargetLocked(surface *state.SurfaceConsoleReco
 				WorkspaceKey: target.ResumeWorkspaceKey,
 			}, thread)
 		}
-		return target, true
+		return target, workspaceKey, true
 	}
 	if pending := surface.PendingHeadless; pending != nil {
 		if pending.Purpose == state.HeadlessLaunchPurposeFreshWorkspace {
@@ -325,9 +342,9 @@ func (a *App) currentSurfaceResumeTargetLocked(surface *state.SurfaceConsoleReco
 				return surfaceResumeTarget{
 					ResumeWorkspaceKey: resumeWorkspaceKey,
 					ResumeRouteMode:    string(routeMode),
-				}, true
+				}, workspaceKey, true
 			}
-			return surfaceResumeTarget{}, false
+			return surfaceResumeTarget{}, workspaceKey, false
 		}
 		return surfaceResumeTarget{
 			ResumeThreadID:     strings.TrimSpace(pending.ThreadID),
@@ -336,7 +353,7 @@ func (a *App) currentSurfaceResumeTargetLocked(surface *state.SurfaceConsoleReco
 			ResumeWorkspaceKey: state.ResolveWorkspaceKey(workspaceKey, pending.WorkspaceKey, pending.ThreadCWD),
 			ResumeRouteMode:    string(state.RouteModePinned),
 			ResumeHeadless:     true,
-		}, true
+		}, workspaceKey, true
 	}
 	if surface.RouteMode == state.RouteModeNewThreadReady {
 		workspaceKey = state.ResolveWorkspaceKey(workspaceKey, surface.PreparedThreadCWD)
@@ -344,10 +361,19 @@ func (a *App) currentSurfaceResumeTargetLocked(surface *state.SurfaceConsoleReco
 			return surfaceResumeTarget{
 				ResumeWorkspaceKey: workspaceKey,
 				ResumeRouteMode:    string(state.RouteModeNewThreadReady),
-			}, true
+			}, workspaceKey, true
 		}
 	}
-	return surfaceResumeTarget{}, false
+	return surfaceResumeTarget{}, workspaceKey, false
+}
+
+func previousSurfaceResumeTargetMatchesWorkspace(entry surfaceresume.Entry, effectiveWorkspaceKey string) bool {
+	effectiveWorkspaceKey = state.NormalizeWorkspaceKey(effectiveWorkspaceKey)
+	if effectiveWorkspaceKey == "" || !surfaceResumeEntryNeedsRecovery(entry) {
+		return true
+	}
+	previousWorkspaceKey := state.ResolveWorkspaceKey(entry.ResumeWorkspaceKey, entry.ResumeThreadCWD)
+	return previousWorkspaceKey != "" && previousWorkspaceKey == effectiveWorkspaceKey
 }
 
 func (a *App) shouldClearSurfaceResumeTargetLocked(action control.Action, before *control.Snapshot) bool {

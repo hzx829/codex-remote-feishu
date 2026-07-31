@@ -167,7 +167,7 @@ func TestPrimaryCommandOnReplacesPreviousGateway(t *testing.T) {
 	checker := &fakePrimaryPermissionChecker{decision: PrimaryBotPermissionDecision{Allowed: true, Scope: "im:message.group_msg"}}
 	svc := newServiceForTest(&now)
 	svc.config.PrimaryBotPermissionChecker = checker
-	svc.MaterializeFeishuRoomPrimaryState([]state.FeishuRoomPrimaryRecord{{
+	svc.MaterializeFeishuRoomState([]state.FeishuRoomStateRecord{{
 		RoomID:           "feishu:chat:oc_room",
 		ChatID:           "oc_room",
 		PrimaryGatewayID: "app-old",
@@ -194,7 +194,7 @@ func TestPrimaryCommandOnReplacesPreviousGateway(t *testing.T) {
 func TestPrimaryCommandOffClearsOnlyCurrentGateway(t *testing.T) {
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	svc := newServiceForTest(&now)
-	svc.MaterializeFeishuRoomPrimaryState([]state.FeishuRoomPrimaryRecord{{
+	svc.MaterializeFeishuRoomState([]state.FeishuRoomStateRecord{{
 		RoomID:           "feishu:chat:oc_room",
 		ChatID:           "oc_room",
 		PrimaryGatewayID: "app-1",

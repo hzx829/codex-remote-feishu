@@ -1,14 +1,14 @@
 # Feishu Group On-Demand Resume Design
 
 > Type: `draft`
-> Updated: `2026-07-26`
-> Summary: 记录 Feishu 群聊重启后不刷屏、但被 @ 时按群上下文恢复的产品边界、当前代码差距、可开工拆分计划与验收面。
+> Updated: `2026-07-31`
+> Summary: 记录 Feishu 群聊重启后不刷屏、但被 @ 时按群上下文恢复的产品边界；room workspace durable SSOT 已与单 surface 恢复目标拆开。
 
 ## 背景
 
 当前 `surface resume state` 同时承担两类职责：
 
-1. 持久化 surface 上下文：重启后记住私聊或群聊的 `ProductMode`、backend、workspace、thread、route、room context。
+1. 持久化 surface 恢复合同：重启后记住私聊或群聊的 `ProductMode`、backend、thread、route 与该 surface 的恢复目标；群 workspace binding 由独立 room state 持久化。
 2. daemon 后台自动恢复：重启后在没有用户交互时，主动尝试恢复这些 surface，并把恢复成功或失败通知发回对应飞书窗口。
 
 这两个职责对私聊基本合理，但对群聊不合理。历史群 surface 数量可能很多，daemon 启动或升级重启后不应该把所有历史群都当成当前前台窗口去自动拉起 headless、自动恢复、自动失败通知。
@@ -19,7 +19,7 @@
 
 1. 私聊保持现状：daemon 重启后可以后台自动恢复，并可在私聊里提示恢复成功或失败。
 2. 群聊不做无人触发的后台恢复：daemon 启动、升级重启、tick 不主动给历史群拉起实例，也不主动向群里发恢复成功或失败。
-3. 群聊保留上下文：群 surface 的 resume entry 仍持久化，room workspace binding 仍能 materialize。
+3. 群聊保留上下文：群 surface 的 resume entry 继续持久化单 surface 恢复目标，room state v2 独立持久化并优先 materialize 群 workspace binding。
 4. 群聊被 @ 时按需恢复：用户在群里 @ 对应机器人并发送消息时，如果该群 surface 有可恢复的 workspace/thread，应在这次用户触发的入站动作里尝试恢复或启动。
 5. 群聊主动恢复失败时只回复当前交互：失败提示可以发到群里，因为这是用户刚刚 @ 触发的结果，不是后台噪声。
 6. 升级/重启生命周期通知只发私聊：群聊不接收“服务正在关闭/恢复”这类全局生命周期广播。
@@ -44,9 +44,9 @@ daemon 重启后，历史群里不会出现恢复失败刷屏。
 
 ## 实现方向
 
-### 0. 当前 live code 对照结论
+### 0. 执行前基线与后续更新
 
-截至 `2026-07-26`，与本设计相关的已落地基础如下：
+以下 1-8 记录的是 `2026-07-26` 执行 A/B/C 前的 live code 基线，用于解释当时为何拆分，不代表当前实现仍缺这些能力：
 
 1. `#729` 已完成 room context 主体：同群多 bot 共享 room workspace，不共享 thread / queue / staged input；workspace claim owner 已支持 `surface` / `room`；room active lock 已覆盖普通 dispatch、AutoWhip、AutoContinue。
 2. `#728` 已完成 Feishu 群聊 @ 当前 bot gate：`internal/adapter/feishu/gateway/support.go:groupMessageMentionGateReason` 会在 gateway 入站层忽略未 @ 当前 bot 的群消息；daemon 不需要重新判断 mention。
@@ -56,15 +56,16 @@ daemon 重启后，历史群里不会出现恢复失败刷屏。
 6. `beginShutdownNotices()` 当前遍历 `service.Surfaces()` 给所有 surface 发 shutdown notice；Feishu 群聊 surface 会被包含进去。
 7. `TryAutoResumeHeadlessSurface()` 已经是可复用的恢复核心：它能按 persisted target attach visible instance、reuse/restart managed headless、fresh start headless 或返回 failed/waiting。
 8. `applyIngressActionLocked()` 当前在 `ActionTextMessage` 进入 orchestrator 前会先 `prepareInboundTextFilesActionLocked()`；这个文件暂存路径依赖已 attached workspace。群聊 lazy recovery 的 V1 主链不要把“首条 @ 同时带文件并自动暂存”放进同一个阶段。
+9. `#751` 已把 room durable state 从 primary-only 演进为 v2：原 `feishu-room-primary.json` 路径原位保存 workspace/reset/primary facts；旧 surface resume 只在候选一致时一次性补录缺失 room workspace，冲突时在统一 ingress 前 fail closed。
 
-结论：本设计不再需要重新实现 room context，也不需要新造一套恢复解析；剩余工作应集中在两个 SSOT：
+当前 live code 已有 `surfaceResumeEntryAllowsBackgroundRecovery`、`surfaceAllowsDaemonLifecycleNotice` 和 `maybeStartFeishuGroupOnDemandResumeLocked`，A/B/C 已完成；下文计划保留为实现与回归索引。执行前结论是：不重新实现 room context，也不新造恢复解析，改动集中在两个 SSOT：
 
 1. `surfaceRecoveryPolicy`：同一个地方判断 surface resume entry 是否允许 background recovery、是否允许 on-demand recovery、是否允许 daemon lifecycle notice。
 2. `onDemandHeadlessResume`：同一个地方把“群聊被 @ 的当前 action”转成恢复尝试和恢复后的 continuation。
 
 ### 1. 拆分 resume entry 的两个职责
 
-保留 `surface resume state` 作为持久化上下文 SSOT，但不要直接把所有 entry 都放进同一个 background recovery queue。
+保留 `surface resume state` 作为单 surface backend/thread 恢复合同的 SSOT，但不要直接把所有 entry 都放进同一个 background recovery queue。群 workspace binding 的 durable SSOT 是 room state，surface resume 不得覆盖已有 room workspace。
 
 必须拆出三个判定：
 
@@ -138,7 +139,7 @@ V1 推荐实现边界：
 不应该做的是：
 
 1. 在 `handleUIEventsLocked()` 或 Feishu projector 层按群聊吞所有恢复失败 notice。这会误吞用户刚刚 @ 触发的恢复失败反馈。
-2. 删除群聊 resume entry。那会破坏 room workspace binding 和 lazy recovery 的前提。
+2. 删除群聊 resume entry。那会破坏单 surface thread/lazy recovery 目标；room workspace binding 本身由 room state 独立持久化。
 3. 把群聊 on-demand recovery 做成新的一套 workspace/thread 解析。应复用 `TryAutoResumeHeadlessSurface()` 和现有 workspace continuation。
 
 ## 当前事故分析

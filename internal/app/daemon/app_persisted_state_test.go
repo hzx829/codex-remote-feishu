@@ -11,7 +11,7 @@ import (
 
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/botcapabilitysettings"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/claudeworkspaceprofile"
-	"github.com/kxn/codex-remote-feishu/internal/app/daemon/feishuroomprimary"
+	"github.com/kxn/codex-remote-feishu/internal/app/daemon/feishuroomstate"
 	"github.com/kxn/codex-remote-feishu/internal/app/daemon/surfaceresume"
 	"github.com/kxn/codex-remote-feishu/internal/core/agentproto"
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
@@ -116,34 +116,34 @@ func persistedStateHarnesses() []persistedStateHarness {
 			},
 		},
 		{
-			name:      "Feishu room primary",
-			statePath: feishuroomprimary.StatePath,
+			name:      "Feishu room",
+			statePath: feishuroomstate.StatePath,
 			configure: func(app *App, stateDir string) {
-				app.configureFeishuRoomPrimaryStateLocked(stateDir)
+				app.configureFeishuRoomStateLocked(stateDir)
 			},
 			seed: func(app *App) {
-				app.service.MaterializeFeishuRoomPrimaryState([]state.FeishuRoomPrimaryRecord{{
+				app.service.MaterializeFeishuRoomState([]state.FeishuRoomStateRecord{{
 					RoomID:           "feishu:chat:oc_room",
 					ChatID:           "oc_room",
 					PrimaryGatewayID: "app-1",
 				}})
 			},
 			mutate: func(app *App) {
-				app.service.MaterializeFeishuRoomPrimaryState([]state.FeishuRoomPrimaryRecord{{
+				app.service.MaterializeFeishuRoomState([]state.FeishuRoomStateRecord{{
 					RoomID:           "feishu:chat:oc_room",
 					ChatID:           "oc_room",
 					PrimaryGatewayID: "app-2",
 				}})
 			},
 			sync: func(app *App) {
-				app.syncFeishuRoomPrimaryStateLocked()
+				app.syncFeishuRoomStateLocked()
 			},
 			degrade: func(app *App, err error) {
-				app.feishuRoomPrimaryState.status = persistedStoreStatusDegraded
-				app.feishuRoomPrimaryState.diagnosticErr = err
+				app.feishuRoomState.status = persistedStoreStatusDegraded
+				app.feishuRoomState.diagnosticErr = err
 			},
 			diagnostic: func(app *App) persistedStateDiagnostic {
-				runtime := app.feishuRoomPrimaryState.persistedStoreRuntimeState
+				runtime := app.feishuRoomState.persistedStoreRuntimeState
 				return persistedStateDiagnostic{runtime.status, runtime.path, runtime.diagnosticErr, runtime.store != nil}
 			},
 		},

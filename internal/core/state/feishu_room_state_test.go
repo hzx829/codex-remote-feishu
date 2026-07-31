@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-func TestNormalizeFeishuRoomPrimaryRecord(t *testing.T) {
+func TestNormalizeFeishuRoomStateRecord(t *testing.T) {
 	updatedAt := time.Date(2026, 7, 29, 12, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
-	record, ok := NormalizeFeishuRoomPrimaryRecord(FeishuRoomPrimaryRecord{
+	record, ok := NormalizeFeishuRoomStateRecord(FeishuRoomStateRecord{
 		RoomID:           " feishu:chat:oc_room ",
 		ChatID:           " oc_room ",
 		PrimaryGatewayID: " app-1 ",
@@ -25,16 +25,16 @@ func TestNormalizeFeishuRoomPrimaryRecord(t *testing.T) {
 	}
 }
 
-func TestFeishuRoomPrimaryRecordRequiresRoomIdentity(t *testing.T) {
-	if key := FeishuRoomPrimaryKey(" oc_room "); key != "feishu:chat:oc_room" {
-		t.Fatalf("FeishuRoomPrimaryKey = %q, want feishu:chat:oc_room", key)
+func TestFeishuRoomStateRecordRequiresRoomIdentity(t *testing.T) {
+	if key := FeishuRoomKey(" oc_room "); key != "feishu:chat:oc_room" {
+		t.Fatalf("FeishuRoomKey = %q, want feishu:chat:oc_room", key)
 	}
-	if _, ok := NormalizeFeishuRoomPrimaryRecord(FeishuRoomPrimaryRecord{}); ok {
-		t.Fatal("expected empty room primary record to be rejected")
+	if _, ok := NormalizeFeishuRoomStateRecord(FeishuRoomStateRecord{}); ok {
+		t.Fatal("expected empty room state record to be rejected")
 	}
 }
 
-func TestFeishuRoomPrimaryRecordFromContextExcludesRuntimeEvidence(t *testing.T) {
+func TestFeishuRoomStateRecordFromContextExcludesRuntimeEvidence(t *testing.T) {
 	updatedAt := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	room := &FeishuRoomContextRecord{
 		RoomID:             "feishu:chat:oc_room",
@@ -48,7 +48,7 @@ func TestFeishuRoomPrimaryRecordFromContextExcludesRuntimeEvidence(t *testing.T)
 		SurfaceSessionIDs:  map[string]bool{"surface-1": true},
 		WorkspaceUpdatedBy: "ou_workspace",
 	}
-	record, ok := FeishuRoomPrimaryRecordFromContext(room)
+	record, ok := FeishuRoomStateRecordFromContext(room)
 	if !ok {
 		t.Fatal("expected room primary record from context")
 	}

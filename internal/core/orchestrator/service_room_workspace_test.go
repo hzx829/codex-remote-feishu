@@ -678,6 +678,76 @@ func TestRoomWorkspaceSwitchByAdminResetsSameRoomSurfaces(t *testing.T) {
 	}
 }
 
+func TestRestoredRoomWorkspaceSwitchRejectsNonAdminWithoutReset(t *testing.T) {
+	authorizer := &fakeChatAdminAuthorizer{allowed: false}
+	svc := newRoomWorkspaceTestService(t)
+	svc.config.ChatAdminAuthorizer = authorizer
+	svc.MaterializeFeishuRoomState([]state.FeishuRoomStateRecord{{
+		RoomID:                   "feishu:chat:oc_room",
+		ChatID:                   "oc_room",
+		WorkspaceKey:             "/data/dl/droid",
+		WorkspaceResetGeneration: 4,
+	}})
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_member",
+		WorkspaceKey:     "/data/dl/web",
+	})
+
+	if len(authorizer.calls) != 1 || noticeCode(events, "room_workspace_admin_required") == "" {
+		t.Fatalf("restored workspace must preserve admin gate: calls=%#v events=%#v", authorizer.calls, events)
+	}
+	room := svc.root.FeishuRoomContexts["feishu:chat:oc_room"]
+	if room.WorkspaceKey != "/data/dl/droid" || room.WorkspaceResetGeneration != 4 {
+		t.Fatalf("rejected restored workspace switch mutated room: %#v", room)
+	}
+}
+
+func TestRestoredRoomWorkspaceAdminSwitchResetsSibling(t *testing.T) {
+	authorizer := &fakeChatAdminAuthorizer{allowed: true}
+	svc := newRoomWorkspaceTestService(t)
+	svc.config.ChatAdminAuthorizer = authorizer
+	svc.MaterializeFeishuRoomState([]state.FeishuRoomStateRecord{{
+		RoomID:                   "feishu:chat:oc_room",
+		ChatID:                   "oc_room",
+		WorkspaceKey:             "/data/dl/droid",
+		WorkspaceResetGeneration: 4,
+	}})
+	for _, action := range []control.Action{
+		{Kind: control.ActionAttachWorkspace, SurfaceSessionID: "feishu:app-1:chat:oc_room", GatewayID: "app-1", ChatID: "oc_room", ActorUserID: "ou_owner", WorkspaceKey: "/data/dl/droid"},
+		{Kind: control.ActionAttachWorkspace, SurfaceSessionID: "feishu:app-2:chat:oc_room", GatewayID: "app-2", ChatID: "oc_room", ActorUserID: "ou_member", WorkspaceKey: "/data/dl/droid"},
+	} {
+		svc.ApplySurfaceAction(action)
+	}
+	sibling := svc.root.Surfaces["feishu:app-2:chat:oc_room"]
+	sibling.SelectedThreadID = "thread-droid-b"
+	sibling.RouteMode = state.RouteModePinned
+
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: "feishu:app-1:chat:oc_room",
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/web",
+	})
+
+	if len(authorizer.calls) != 1 || noticeCode(events, "workspace_switched") == "" {
+		t.Fatalf("restored workspace admin switch failed: calls=%#v events=%#v", authorizer.calls, events)
+	}
+	room := svc.root.FeishuRoomContexts["feishu:chat:oc_room"]
+	if room.WorkspaceKey != "/data/dl/web" || room.WorkspaceResetGeneration != 5 {
+		t.Fatalf("restored room switch state = %#v", room)
+	}
+	if sibling.AttachedInstanceID != "" || sibling.SelectedThreadID != "" || sibling.ClaimedWorkspaceKey != "/data/dl/web" {
+		t.Fatalf("restored room switch did not reset sibling: %#v", sibling)
+	}
+}
+
 func TestRoomActiveLockBlocksSecondSameRoomSurfaceDispatch(t *testing.T) {
 	svc := newRoomWorkspaceTestService(t)
 	svc.ApplySurfaceAction(control.Action{

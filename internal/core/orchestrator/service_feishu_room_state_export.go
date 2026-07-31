@@ -6,7 +6,7 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
 )
 
-func (s *Service) MaterializeFeishuRoomPrimaryState(records []state.FeishuRoomPrimaryRecord) {
+func (s *Service) MaterializeFeishuRoomState(records []state.FeishuRoomStateRecord) {
 	if s == nil || s.root == nil {
 		return
 	}
@@ -14,7 +14,7 @@ func (s *Service) MaterializeFeishuRoomPrimaryState(records []state.FeishuRoomPr
 		s.root.FeishuRoomContexts = map[string]*state.FeishuRoomContextRecord{}
 	}
 	for _, record := range records {
-		normalized, ok := state.NormalizeFeishuRoomPrimaryRecord(record)
+		normalized, ok := state.NormalizeFeishuRoomStateRecord(record)
 		if !ok {
 			continue
 		}
@@ -33,10 +33,14 @@ func (s *Service) MaterializeFeishuRoomPrimaryState(records []state.FeishuRoomPr
 		room.PrimaryGatewayID = normalized.PrimaryGatewayID
 		room.PrimaryUpdatedBy = normalized.PrimaryUpdatedBy
 		room.PrimaryUpdatedAt = normalized.PrimaryUpdatedAt
+		room.WorkspaceKey = normalized.WorkspaceKey
+		room.WorkspaceUpdatedBy = normalized.WorkspaceUpdatedBy
+		room.WorkspaceUpdatedAt = normalized.WorkspaceUpdatedAt
+		room.WorkspaceResetGeneration = normalized.WorkspaceResetGeneration
 	}
 }
 
-func (s *Service) FeishuRoomPrimaryState() []state.FeishuRoomPrimaryRecord {
+func (s *Service) FeishuRoomState() []state.FeishuRoomStateRecord {
 	if s == nil || s.root == nil || len(s.root.FeishuRoomContexts) == 0 {
 		return nil
 	}
@@ -45,13 +49,13 @@ func (s *Service) FeishuRoomPrimaryState() []state.FeishuRoomPrimaryRecord {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	records := make([]state.FeishuRoomPrimaryRecord, 0, len(keys))
+	records := make([]state.FeishuRoomStateRecord, 0, len(keys))
 	for _, key := range keys {
 		room := s.root.FeishuRoomContexts[key]
-		if room == nil || room.PrimaryGatewayID == "" {
+		if room == nil || room.PrimaryGatewayID == "" && room.WorkspaceKey == "" && room.WorkspaceResetGeneration == 0 {
 			continue
 		}
-		record, ok := state.FeishuRoomPrimaryRecordFromContext(room)
+		record, ok := state.FeishuRoomStateRecordFromContext(room)
 		if !ok {
 			continue
 		}
@@ -64,7 +68,7 @@ func (s *Service) FeishuRoomPrimaryGateway(chatID string) string {
 	if s == nil || s.root == nil {
 		return ""
 	}
-	room := s.root.FeishuRoomContexts[state.FeishuRoomPrimaryKey(chatID)]
+	room := s.root.FeishuRoomContexts[state.FeishuRoomKey(chatID)]
 	if room == nil {
 		return ""
 	}

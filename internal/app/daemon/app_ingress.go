@@ -233,6 +233,16 @@ func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.A
 		a.syncClaudeWorkspaceProfileStateLocked()
 		return nil
 	}
+	if notice := a.feishuRoomWorkspaceConflictNotice(action); notice != nil {
+		a.ensureSurfaceRouteForNotice(action)
+		a.handleUIEventsLocked(ctx, []eventcontract.Event{{
+			Kind:             eventcontract.KindNotice,
+			GatewayID:        action.GatewayID,
+			SurfaceSessionID: action.SurfaceSessionID,
+			Notice:           notice,
+		}})
+		return nil
+	}
 	if a.maybeHandleStandaloneCodexUpgradeActionLocked(ctx, action) {
 		return nil
 	}
@@ -261,7 +271,7 @@ func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.A
 		a.syncSurfaceResumeStateLocked(nil)
 		a.syncClaudeWorkspaceProfileStateLocked()
 		a.syncBotCapabilitySettingsStateLocked()
-		a.syncFeishuRoomPrimaryStateLocked()
+		a.syncFeishuRoomStateLocked()
 		a.syncWorkspaceSurfaceContextFilesLocked()
 		return nil
 	}
@@ -280,7 +290,7 @@ func (a *App) handleAction(ctx context.Context, action control.Action) *feishu.A
 	a.syncSurfaceResumeStateLocked(clearTargets)
 	a.syncClaudeWorkspaceProfileStateLocked()
 	a.syncBotCapabilitySettingsStateLocked()
-	a.syncFeishuRoomPrimaryStateLocked()
+	a.syncFeishuRoomStateLocked()
 	a.syncWorkspaceSurfaceContextFilesLocked()
 	if action.Kind == control.ActionModeCommand {
 		after := a.service.SurfaceSnapshot(action.SurfaceSessionID)
@@ -536,7 +546,7 @@ func (a *App) onHello(ctx context.Context, hello agentproto.Hello) {
 		a.syncSurfaceResumeStateLocked(nil)
 		a.syncClaudeWorkspaceProfileStateLocked()
 		a.syncBotCapabilitySettingsStateLocked()
-		a.syncFeishuRoomPrimaryStateLocked()
+		a.syncFeishuRoomStateLocked()
 		a.syncWorkspaceSurfaceContextFilesLocked()
 	}
 	if inst.Source == "vscode" {

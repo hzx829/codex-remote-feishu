@@ -143,7 +143,7 @@ type App struct {
 	daemonAsyncRuntime          daemonAsyncRuntimeState
 	cronRuntime                 cronRuntimeState
 	botCapabilitySettingsState  botCapabilitySettingsRuntimeState
-	feishuRoomPrimaryState      feishuRoomPrimaryRuntimeState
+	feishuRoomState             feishuRoomRuntimeState
 	claudeWorkspaceProfileState claudeWorkspaceProfileRuntimeState
 
 	adminAuth                  *adminauth.Manager
@@ -325,7 +325,7 @@ func (a *App) SetHeadlessRuntime(cfg HeadlessRuntimeConfig) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.configureBotCapabilitySettingsStateLocked(cfg.Paths.StateDir)
-	a.configureFeishuRoomPrimaryStateLocked(cfg.Paths.StateDir)
+	a.configureFeishuRoomStateLocked(cfg.Paths.StateDir)
 	a.configureClaudeWorkspaceProfileStateLocked(cfg.Paths.StateDir)
 	a.configureSurfaceResumeStateLocked(cfg.Paths.StateDir)
 	if loaded, err := a.loadAdminConfig(); err == nil {
@@ -336,7 +336,7 @@ func (a *App) SetHeadlessRuntime(cfg HeadlessRuntimeConfig) {
 	}
 	a.syncClaudeWorkspaceProfileStateLocked()
 	a.syncBotCapabilitySettingsStateLocked()
-	a.syncFeishuRoomPrimaryStateLocked()
+	a.syncFeishuRoomStateLocked()
 	a.syncSurfaceResumeStateLocked(nil)
 }
 

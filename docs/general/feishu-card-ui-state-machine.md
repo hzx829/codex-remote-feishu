@@ -1,7 +1,7 @@
 # Feishu 卡片 UI 状态机
 
 > Type: `general`
-> Updated: `2026-07-29`
+> Updated: `2026-07-31`
 > Summary: 当前 live 的 Feishu 卡片 UI 已把 workspace/page/request/review 等 owner-flow 收口到稳定的 page / picker / request substrate；immediate `select_static` callback 的取值规则统一落在 `internal/adapter/feishu/selectflow`，按 `payload value -> form_value[field_name] -> option/options` 恢复，避免群聊回调把旧 option 误当成新选择；`/workspace list` 与 alias `/list` 在工作区已确定后也会把 `新建会话` 作为合法 session 选项，并默认选中它；bare `/model` 的下拉候选现在只来自当前 Codex instance 的动态 `model/list` 缓存，无缓存/旧 app-server/刷新失败时只保留手动输入；Codex/VS Code 下 bare `/reasoning` 现在以当前模型的动态 `supportedReasoningEfforts` 投影快捷项，目录不可校验时只保留自动并给出说明，不再展示全局硬编码推理档位；Feishu 群聊菜单会隐藏 bot 能力设置项，手输或卡片回调尝试修改 `/mode`、provider/profile、model/reasoning/access/plan 时同卡或 notice 提示到私聊修改；`/primary on/off/status/refresh` 已接入统一 command family，群聊工具菜单按当前 room primary 状态投影设置/取消/切换/查看/刷新按钮，单聊菜单隐藏但文本命令返回群聊限定提示；显式表单提交家族仍保持各自既有 submit 语义；`mcpServer/elicitation/request` 承载 MCP tool approval 时会归一成 `mcp_server_elicitation_approval`，飞书卡只开放本次/本会话授权，`persist=always` 仅提示暂不支持跨会话持久允许；`/mcpoauth <server>` 当前只发起 MCP OAuth RPC lifecycle，并用 append-only notice 展示授权链接与完成/失败结果，不进入 request card 或菜单 owner-flow。
 
 ## 1. 文档定位
@@ -65,6 +65,7 @@
   - 命令菜单 launcher 的 handoff 当前也统一读取 `ResolveFeishuFrontstageActionContract(action).LauncherDisposition`：`keep` 保留菜单导航/配置页，`enter_terminal` 当前用于 stamped `/help`、`/status`，其余 stamped launcher 动作默认 `enter_owner`
   - `ResolveFeishuFrontstageActionContract(action)` 里的 `ContinuationDaemonCommand` 与 `FollowupPolicy` 现在也优先从 `FeishuCommandBinding` 读取：`/debug`、`/cron`、`/upgrade`、`/vscode-migrate` 的首结果卡续接 daemon command，以及 `/help`、`/status`、`/stop`、`/new`、`/follow`、`/detach`、`/workspace detach` 这组命令的 followup drop 策略，不再分别散落在 lifecycle switch 里
   - 未打标的 `FeishuUIIntent` card callback 当前会在 ingress lifecycle gate 直接判成 expired old-card，不再保留“异步继续执行但不做同步 replace”的 compat 路径
+  - Feishu room workspace 恢复冲突 gate 位于 lifecycle reject 之后、业务分流之前：旧 lifecycle callback 仍优先返回 `old_card`；当前 lifecycle callback 命中冲突时 append 独立 `room_workspace_recovery_conflict` notice 并返回空同步结果，不 replace 原菜单卡，也不执行 owner/product mutation
   - 旧 bare continuation / command submission anchor 当前已退出 live 路径，不再承接 stamped current-card 回调
 - `orchestrator / Feishu UI controller`
   - 负责 `show_*`、`/menu`、bare config-card 这类 pure navigation 的 controller 分流与事件构建
@@ -726,6 +727,8 @@ MCP request 卡片当前新增的可视语义：
 | `old` | `message_create_time` 或 `menu_click_time` 落在旧窗口外 | 发“旧动作已忽略” notice，不进入产品处理 |
 | `old_card` | callback 带 `daemon_lifecycle_id` 且与当前 daemon 不匹配；或 callback 命中 `FeishuUIIntent` 但缺少 `daemon_lifecycle_id` | 发“旧卡片已过期” notice，不进入产品处理，也不会 replace 当前卡；review final card 的 `Review 待提交内容` / `放弃审阅` / `按审阅意见继续修改` 也完全复用这条拒绝路径 |
 
+通过 lifecycle gate 的当前 callback 若命中 room workspace 恢复冲突，会在 frontstage contract / owner mutation 之前停止：daemon append 一张独立冲突提示并返回 `nil` action result，原卡保持不变。这个 gate 不得提前到 lifecycle 判定之前，否则旧卡会被错误解释为当前 room 操作；也不得进入 inline replacement，否则会把诊断提示伪装成菜单或 owner card 的业务结果。
+
 ### 6.2 当前一个重要边界
 
 **没有 `daemon_lifecycle_id` 的 card callback，现在只对仍保留兼容的非-`FeishuUIIntent` 路径继续放行；命中 `FeishuUIIntent` 的这类旧 callback 会直接被判成 expired old-card。**
@@ -965,6 +968,8 @@ MCP request 卡片当前新增的可视语义：
   - 锁定 `ResolveFeishuFrontstageActionContract(...)` / `SupportsFeishuSynchronousCurrentCardReplacement(...)` 的当前 frontstage contract：`inline_view`、`first_result_card`、`LauncherDisposition` 分类、lifecycle freshness、以及 legacy bare continuation / submission anchor 已退出 live 路径
 - [internal/app/daemon/app_inbound_lifecycle_test.go](../../internal/app/daemon/app_inbound_lifecycle_test.go)
   - 锁定 old / old-card 生命周期分类，以及 reject detail 已按当前 UI intent / command 语义收束
+- [internal/app/daemon/app_feishu_room_state_test.go](../../internal/app/daemon/app_feishu_room_state_test.go)
+  - 锁定 room workspace 恢复冲突在普通文本、`/list`、`/use` 与当前菜单回调前统一 fail closed；当前 callback 只 append 冲突 notice 并返回空同步结果，旧 lifecycle callback 则仍优先按 `old_card` 拒绝
 - [internal/core/orchestrator/service_config_prompt_test.go](../../internal/core/orchestrator/service_config_prompt_test.go)
 - [internal/core/orchestrator/service_reply_auto_steer_test.go](../../internal/core/orchestrator/service_reply_auto_steer_test.go)
 - [internal/core/orchestrator/service_steer_all_test.go](../../internal/core/orchestrator/service_steer_all_test.go)

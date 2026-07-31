@@ -7,16 +7,20 @@ import (
 	"github.com/kxn/codex-remote-feishu/internal/core/state"
 )
 
-func TestMaterializeFeishuRoomPrimaryState(t *testing.T) {
+func TestMaterializeFeishuRoomState(t *testing.T) {
 	svc := NewService(nil, Config{}, nil)
 	updatedAt := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 
-	svc.MaterializeFeishuRoomPrimaryState([]state.FeishuRoomPrimaryRecord{{
-		RoomID:           "feishu:chat:oc_room",
-		ChatID:           "oc_room",
-		PrimaryGatewayID: "app-1",
-		PrimaryUpdatedBy: "ou_user",
-		PrimaryUpdatedAt: updatedAt,
+	svc.MaterializeFeishuRoomState([]state.FeishuRoomStateRecord{{
+		RoomID:                   "feishu:chat:oc_room",
+		ChatID:                   "oc_room",
+		WorkspaceKey:             "/data/dl/workspace",
+		WorkspaceUpdatedBy:       "ou_workspace",
+		WorkspaceUpdatedAt:       updatedAt,
+		WorkspaceResetGeneration: 3,
+		PrimaryGatewayID:         "app-1",
+		PrimaryUpdatedBy:         "ou_user",
+		PrimaryUpdatedAt:         updatedAt,
 	}})
 
 	room := svc.root.FeishuRoomContexts["feishu:chat:oc_room"]
@@ -26,12 +30,15 @@ func TestMaterializeFeishuRoomPrimaryState(t *testing.T) {
 	if room.PrimaryGatewayID != "app-1" || room.PrimaryUpdatedBy != "ou_user" || !room.PrimaryUpdatedAt.Equal(updatedAt) {
 		t.Fatalf("primary state = %#v, want app-1/ou_user/%v", room, updatedAt)
 	}
+	if room.WorkspaceKey != "/data/dl/workspace" || room.WorkspaceUpdatedBy != "ou_workspace" || !room.WorkspaceUpdatedAt.Equal(updatedAt) || room.WorkspaceResetGeneration != 3 {
+		t.Fatalf("workspace state = %#v, want durable workspace metadata", room)
+	}
 	if len(room.GatewayIDs) != 0 || len(room.SurfaceSessionIDs) != 0 || room.ActiveLock != nil {
 		t.Fatalf("materialized durable primary state should not invent runtime evidence: %#v", room)
 	}
 }
 
-func TestFeishuRoomPrimaryStateExportsOnlyRoomsWithPrimaryState(t *testing.T) {
+func TestFeishuRoomStateExportsOnlyRoomsWithDurableState(t *testing.T) {
 	svc := NewService(nil, Config{}, nil)
 	svc.root.FeishuRoomContexts["feishu:chat:oc_b"] = &state.FeishuRoomContextRecord{
 		RoomID:           "feishu:chat:oc_b",
@@ -48,11 +55,29 @@ func TestFeishuRoomPrimaryStateExportsOnlyRoomsWithPrimaryState(t *testing.T) {
 		ChatID: "oc_empty",
 	}
 
-	records := svc.FeishuRoomPrimaryState()
+	records := svc.FeishuRoomState()
 	if len(records) != 2 {
 		t.Fatalf("exported records = %d, want 2: %#v", len(records), records)
 	}
 	if records[0].RoomID != "feishu:chat:oc_a" || records[1].RoomID != "feishu:chat:oc_b" {
 		t.Fatalf("records not sorted by room id: %#v", records)
+	}
+}
+
+func TestFeishuRoomStateExportsWorkspaceOnlyRooms(t *testing.T) {
+	svc := NewService(nil, Config{}, nil)
+	svc.root.FeishuRoomContexts["feishu:chat:oc_workspace"] = &state.FeishuRoomContextRecord{
+		RoomID:             "feishu:chat:oc_workspace",
+		ChatID:             "oc_workspace",
+		WorkspaceKey:       "/data/dl/workspace",
+		WorkspaceUpdatedBy: "ou_owner",
+	}
+
+	records := svc.FeishuRoomState()
+	if len(records) != 1 {
+		t.Fatalf("exported records = %d, want workspace-only room to remain durable: %#v", len(records), records)
+	}
+	if records[0].WorkspaceKey != "/data/dl/workspace" {
+		t.Fatalf("durable room record does not carry workspace binding: %#v", records[0])
 	}
 }

@@ -75,6 +75,7 @@ func DefaultManifest() Manifest {
 					"im:datasync.feed_card.time_sensitive:write",
 					"im:message",
 					"im:message.group_at_msg:readonly",
+					"im:message.group_msg",
 					"im:message.p2p_msg:readonly",
 					"im:message.reactions:read",
 					"im:message.reactions:write_only",
@@ -125,6 +126,13 @@ func DefaultManifest() Manifest {
 				Feature:        "group_mentions",
 				Required:       false,
 				DegradeMessage: "缺少该权限时，机器人无法稳定处理群聊 @ 消息。",
+			},
+			{
+				Scope:          "im:message.group_msg",
+				ScopeType:      "tenant",
+				Feature:        "group_unmentioned_messages",
+				Required:       false,
+				DegradeMessage: "缺少该权限时，群聊和话题群里的普通消息必须显式 @ 机器人；裸 /list 等命令不会送达。",
 			},
 			{
 				Scope:          "im:message.p2p_msg:readonly",

@@ -61,6 +61,25 @@ func TestProjectTargetPickerStampsDaemonLifecycleID(t *testing.T) {
 	}
 }
 
+func TestProjectTargetPickerRepliesInsideTopicSurface(t *testing.T) {
+	projector := NewProjector()
+	ops := projector.ProjectEvent("chat-1", eventcontract.Event{
+		Kind:             eventcontract.KindTargetPicker,
+		SurfaceSessionID: "feishu:app-1:thread:omt-topic-1",
+		SourceMessageID:  "om-command-1",
+		TargetPickerView: &control.FeishuTargetPickerView{
+			PickerID: "picker-1",
+			Title:    "选择工作区与会话",
+		},
+	})
+	if len(ops) != 1 || ops[0].Kind != OperationSendCard {
+		t.Fatalf("expected one new card op, got %#v", ops)
+	}
+	if ops[0].ReplyToMessageID != "om-command-1" {
+		t.Fatalf("expected topic picker to reply to its source message, got %#v", ops[0])
+	}
+}
+
 func TestProjectTargetPickerUsesUpdateCardWhenMessageIDPresent(t *testing.T) {
 	projector := NewProjector()
 	ops := projector.ProjectEvent("chat-1", eventcontract.Event{

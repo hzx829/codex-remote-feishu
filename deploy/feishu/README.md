@@ -86,6 +86,7 @@ alias 仍兼容，但不建议继续当成新的主展示入口：
 - `im:datasync.feed_card.time_sensitive:write`
 - `im:message`
 - `im:message.group_at_msg:readonly`
+- `im:message.group_msg`
 - `im:message.p2p_msg:readonly`
 - `im:message.reactions:read`
 - `im:message.reactions:write_only`
@@ -106,12 +107,12 @@ alias 仍兼容，但不建议继续当成新的主展示入口：
 
 - `bitable:app` 已开通，用于创建和访问当前 daemon 实例的专属多维表格
 
-如果你计划在群聊里使用 `/primary on` 设置“本群主机器人”，让它承接没有 `@` 任何人的普通群消息，再给这个机器人应用额外开通以下任一权限：
+默认导入模板会申请 `im:message.group_msg`，用于在群聊里通过 `/primary on` 设置“本群主机器人”，让它承接没有 `@` 任何人的普通群消息。也可以改为开通以下只读权限：
 
 - `im:message.group_msg`
 - `im:message.group_msg:readonly`
 
-这不是基础安装必选权限。没有开通时，机器人仍可处理单聊消息和群里明确 `@` 它的消息；只是 `/primary on` 会拒绝设置，未 `@` 群消息也不会被它承接。开通权限后，重新执行 `/primary on` 或 `/primary refresh` 即可刷新运行时缓存。
+这是可选能力，不影响单聊或群里明确 `@` 机器人的消息。没有开通时，`/primary on` 会拒绝设置，群聊和话题群里的裸 `/list` 等命令也不会送达；开通权限后，先明确 `@` 机器人执行 `/primary on`，后续裸命令才会由本群主机器人承接。已有 Primary 配置可执行 `/primary refresh` 刷新运行时权限缓存。
 
 ### 2. 事件订阅
 

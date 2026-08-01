@@ -1,10 +1,12 @@
 # Feishu 卡片 UI 状态机
 
 > Type: `general`
-> Updated: `2026-07-31`
+> Updated: `2026-08-01`
 > Summary: 当前 live 的 Feishu 卡片 UI 已把 workspace/page/request/review 等 owner-flow 收口到稳定的 page / picker / request substrate；immediate `select_static` callback 的取值规则统一落在 `internal/adapter/feishu/selectflow`，按 `payload value -> form_value[field_name] -> option/options` 恢复，避免群聊回调把旧 option 误当成新选择；`/workspace list` 与 alias `/list` 在工作区已确定后也会把 `新建会话` 作为合法 session 选项，并默认选中它；bare `/model` 的下拉候选现在只来自当前 Codex instance 的动态 `model/list` 缓存，无缓存/旧 app-server/刷新失败时只保留手动输入；Codex/VS Code 下 bare `/reasoning` 现在以当前模型的动态 `supportedReasoningEfforts` 投影快捷项，目录不可校验时只保留自动并给出说明，不再展示全局硬编码推理档位；Feishu 群聊菜单会隐藏 bot 能力设置项，手输或卡片回调尝试修改 `/mode`、provider/profile、model/reasoning/access/plan 时同卡或 notice 提示到私聊修改；`/primary on/off/status/refresh` 已接入统一 command family，群聊工具菜单按当前 room primary 状态投影设置/取消/切换/查看/刷新按钮，单聊菜单隐藏但文本命令返回群聊限定提示；显式表单提交家族仍保持各自既有 submit 语义；`mcpServer/elicitation/request` 承载 MCP tool approval 时会归一成 `mcp_server_elicitation_approval`，飞书卡只开放本次/本会话授权，`persist=always` 仅提示暂不支持跨会话持久允许；`/mcpoauth <server>` 当前只发起 MCP OAuth RPC lifecycle，并用 append-only notice 展示授权链接与完成/失败结果，不进入 request card 或菜单 owner-flow。
 
 > 2026-07-31 补充：Feishu 话题内 `/list` 的 target picker 现在只显示 workspace lane，并在 read model 中固定 `new_thread`；`/use` 仍显示 session lane，选中已有 session 后会在同卡展示最近活动、模型、目录与 session ID。
+
+> 2026-08-01 补充：话题 surface 首次发送 page / picker / request / notice 等卡片时，只要事件带有源消息锚点，就强制通过回复接口落在当前话题；后续状态仍以 `message.patch` 更新同一张卡。普通私聊和非话题群聊继续遵守事件自己的 top-level / reply-thread delivery lane。
 
 ## 1. 文档定位
 

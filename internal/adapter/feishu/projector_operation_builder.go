@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/kxn/codex-remote-feishu/internal/core/eventcontract"
+	"github.com/kxn/codex-remote-feishu/internal/feishuidentity"
 )
 
 type eventCardOperationSpec struct {
@@ -65,6 +66,9 @@ func newEventCardOperation(chatID string, event eventcontract.Event, spec eventC
 		operation.ReplyToMessageID = ""
 	} else if spec.ApplyReplyLane {
 		operation = applyReplyLaneToNewOperation(event, operation)
+		if surface, ok := feishuidentity.ParseSurfaceRef(event.SurfaceSessionID); ok && surface.IsThread() {
+			operation.ReplyToMessageID = replyToMessageIDForEvent(event)
+		}
 	}
 	return applyTemporarySessionHeaderToOperation(operation, spec.TemporarySessionLabel)
 }

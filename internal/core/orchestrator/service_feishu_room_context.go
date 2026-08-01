@@ -192,6 +192,37 @@ func (s *Service) sameRoomWorkspaceIndependentContextAllowed(surface *state.Surf
 	return s.feishuRoomActiveLockHolder(room, surface) == nil
 }
 
+func (s *Service) prepareIdlePrivateWorkspaceHandoff(surface *state.SurfaceConsoleRecord, workspaceKey string) ([]eventcontract.Event, bool) {
+	if surface == nil || surfaceFeishuRoomID(surface) == "" {
+		return nil, true
+	}
+	owner := s.workspaceBusyOwnerForSurface(surface, workspaceKey)
+	if owner == nil {
+		return nil, true
+	}
+	if !sameUserPrivateWorkspaceHandoff(surface, owner) {
+		return nil, true
+	}
+	if owner.PendingHeadless != nil || s.surfaceHasLiveRemoteWork(owner) || s.surfaceHasRoomActiveWork(owner) ||
+		s.surfaceHasRouteMutationBlocker(owner) {
+		return notice(surface, "workspace_handoff_busy", "这个工作区正在你的私聊会话中使用。请等待任务结束后重试，或先在私聊中发送 /detach。"), false
+	}
+	return s.finalizeDetachedSurface(owner), true
+}
+
+func sameUserPrivateWorkspaceHandoff(surface, owner *state.SurfaceConsoleRecord) bool {
+	if surface == nil || owner == nil || surfaceFeishuRoomID(surface) == "" {
+		return false
+	}
+	ownerRef, ok := feishuidentity.ParseSurfaceRef(owner.SurfaceSessionID)
+	actorUserID := strings.TrimSpace(surface.ActorUserID)
+	if !ok || !ownerRef.IsUser() || actorUserID == "" || strings.TrimSpace(owner.ActorUserID) != actorUserID ||
+		strings.TrimSpace(owner.GatewayID) != strings.TrimSpace(surface.GatewayID) {
+		return false
+	}
+	return true
+}
+
 func (s *Service) instanceClaimedBySameRoomSibling(surface *state.SurfaceConsoleRecord, instanceID string) bool {
 	owner := s.instanceClaimSurface(instanceID)
 	if owner == nil || surface == nil || owner.SurfaceSessionID == surface.SurfaceSessionID {

@@ -347,6 +347,20 @@ func buildRuntimeGatewayApps(appConfig config.AppConfig, services config.Service
 	}
 
 build:
+	enabledGatewayIDs := make([]string, 0, len(runtimeApps))
+	for _, app := range runtimeApps {
+		if strings.TrimSpace(app.ID) == "" || app.Enabled != nil && !*app.Enabled {
+			continue
+		}
+		enabledGatewayIDs = append(enabledGatewayIDs, strings.TrimSpace(app.ID))
+	}
+	primaryGatewayForChat := hooks.PrimaryGatewayForChat
+	if len(enabledGatewayIDs) == 1 {
+		defaultGatewayID := enabledGatewayIDs[0]
+		primaryGatewayForChat = func(string) string {
+			return defaultGatewayID
+		}
+	}
 	values := make([]feishu.GatewayAppConfig, 0, len(runtimeApps))
 	for _, app := range runtimeApps {
 		gatewayID := strings.TrimSpace(app.ID)
@@ -365,7 +379,7 @@ build:
 			PreviewStatePath:      filepath.Join(paths.StateDir, "feishu-md-preview-"+sanitizeGatewayPath(gatewayID)+".json"),
 			PreviewCacheDir:       filepath.Join(paths.DataDir, "preview-cache", sanitizeGatewayPath(gatewayID)),
 			PreviewRootFolderName: strings.TrimSpace(appConfig.Storage.PreviewRootFolderName),
-			PrimaryGatewayForChat: hooks.PrimaryGatewayForChat,
+			PrimaryGatewayForChat: primaryGatewayForChat,
 		})
 	}
 	return values

@@ -238,6 +238,117 @@ func TestRoomWorkspaceTargetPickerNewThreadStartsIndependentHeadlessWhenOnlySibl
 	}
 }
 
+func TestRoomTopicTargetPickerTakesOverIdleWorkspaceFromSameUserPrivateSurface(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	privateID := "feishu:app-1:user:ou_owner"
+	topicID := "feishu:app-1:thread:omt_topic"
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: privateID,
+		GatewayID:        "app-1",
+		ChatID:           "ou_owner",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	privateSurface := svc.root.Surfaces[privateID]
+	if privateSurface == nil || privateSurface.AttachedInstanceID == "" {
+		t.Fatalf("expected private surface to own workspace, got %#v", privateSurface)
+	}
+
+	view := singleTargetPickerEvent(t, svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionListInstances,
+		SurfaceSessionID: topicID,
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+	}))
+	view = singleTargetPickerEvent(t, svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTargetPickerSelectWorkspace,
+		SurfaceSessionID: topicID,
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		PickerID:         view.PickerID,
+		WorkspaceKey:     "/data/dl/droid",
+	}))
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:              control.ActionTargetPickerConfirm,
+		SurfaceSessionID:  topicID,
+		GatewayID:         "app-1",
+		ChatID:            "oc_room",
+		ActorUserID:       "ou_owner",
+		PickerID:          view.PickerID,
+		WorkspaceKey:      "/data/dl/droid",
+		TargetPickerValue: targetPickerNewThreadValue,
+	})
+
+	topic := svc.root.Surfaces[topicID]
+	if privateSurface.AttachedInstanceID != "" || privateSurface.ClaimedWorkspaceKey != "" {
+		t.Fatalf("expected idle private route to be released, private=%#v topic=%#v events=%#v", privateSurface, topic, events)
+	}
+	if topic == nil || topic.RouteMode != state.RouteModeNewThreadReady || topic.ClaimedWorkspaceKey != "/data/dl/droid" {
+		t.Fatalf("expected topic to own new-thread route, got %#v", topic)
+	}
+	if len(events) == 0 || events[0].TargetPickerView == nil || events[0].TargetPickerView.Stage != control.FeishuTargetPickerStageSucceeded {
+		t.Fatalf("expected successful target picker card, got %#v", events)
+	}
+}
+
+func TestRoomTopicTargetPickerDoesNotTakeOverBusyPrivateWorkspace(t *testing.T) {
+	svc := newRoomWorkspaceTestService(t)
+	privateID := "feishu:app-1:user:ou_owner"
+	topicID := "feishu:app-1:thread:omt_topic"
+	svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionAttachWorkspace,
+		SurfaceSessionID: privateID,
+		GatewayID:        "app-1",
+		ChatID:           "ou_owner",
+		ActorUserID:      "ou_owner",
+		WorkspaceKey:     "/data/dl/droid",
+	})
+	privateSurface := svc.root.Surfaces[privateID]
+	privateSurface.ActiveQueueItemID = "queue-running"
+	privateSurface.QueueItems["queue-running"] = &state.QueueItemRecord{ID: "queue-running", Status: state.QueueItemRunning}
+
+	view := singleTargetPickerEvent(t, svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionListInstances,
+		SurfaceSessionID: topicID,
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+	}))
+	view = singleTargetPickerEvent(t, svc.ApplySurfaceAction(control.Action{
+		Kind:             control.ActionTargetPickerSelectWorkspace,
+		SurfaceSessionID: topicID,
+		GatewayID:        "app-1",
+		ChatID:           "oc_room",
+		ActorUserID:      "ou_owner",
+		PickerID:         view.PickerID,
+		WorkspaceKey:     "/data/dl/droid",
+	}))
+	events := svc.ApplySurfaceAction(control.Action{
+		Kind:              control.ActionTargetPickerConfirm,
+		SurfaceSessionID:  topicID,
+		GatewayID:         "app-1",
+		ChatID:            "oc_room",
+		ActorUserID:       "ou_owner",
+		PickerID:          view.PickerID,
+		WorkspaceKey:      "/data/dl/droid",
+		TargetPickerValue: targetPickerNewThreadValue,
+	})
+
+	if privateSurface.AttachedInstanceID == "" || privateSurface.ClaimedWorkspaceKey != "/data/dl/droid" {
+		t.Fatalf("busy private route must be preserved, got %#v", privateSurface)
+	}
+	if len(events) == 0 || events[0].TargetPickerView == nil {
+		t.Fatalf("expected failed target picker card, got %#v", events)
+	}
+	failed := events[0].TargetPickerView
+	if failed.Stage != control.FeishuTargetPickerStageFailed || !strings.Contains(failed.StatusText, "私聊") {
+		t.Fatalf("expected actionable private-workspace failure, got %#v", failed)
+	}
+}
+
 func TestRoomWorkspaceFreshPendingBindsRoomWorkspaceForSiblingText(t *testing.T) {
 	svc := newRoomWorkspaceTestService(t)
 	svc.MaterializeSurface("feishu:app-1:chat:oc_room", "app-1", "oc_room", "ou_owner")

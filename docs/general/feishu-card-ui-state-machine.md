@@ -8,6 +8,8 @@
 
 > 2026-08-01 补充：话题 surface 首次发送 page / picker / request / notice 等卡片时，只要事件带有源消息锚点，就强制通过回复接口落在当前话题；后续状态仍以 `message.patch` 更新同一张卡。普通私聊和非话题群聊继续遵守事件自己的 top-level / reply-thread delivery lane。
 
+> 2026-08-01 补充：话题 `/list` 的 workspace lane 会保留“同 gateway、同 actor 私聊当前占用”的工作区。确认时若私聊空闲，picker 先完成私聊 route 的 detach-like handoff，再以 room owner 接管并进入 `succeeded`；私聊仍有执行、排队、pending headless 或 route mutation blocker 时进入 `failed` terminal 卡，并在 `StatusText` / notice section 给出“等待结束或私聊 `/detach`”的明确出口。其他 owner 占用的 workspace 仍不进入候选。
+
 ## 1. 文档定位
 
 这份文档描述的是 **当前代码已经实现** 的 Feishu 卡片 UI / callback 层行为。

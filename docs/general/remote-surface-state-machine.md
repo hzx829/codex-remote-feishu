@@ -14,6 +14,8 @@
 
 > 2026-08-01 补充：默认 Feishu manifest 现在申请可选 `im:message.group_msg` 权限。群聊和话题群里的无 `@` 消息仍只在“当前 gateway 已通过 `/primary on` 成为本群主机器人”且权限缓存确认具备 `im:message.group_msg` 或 `im:message.group_msg:readonly` 时放行；否则裸 `/list` 不进入 surface 状态机，用户需显式 `@` 机器人。话题 surface 接受 `/list` 后，首张 target picker 会回复源消息并锚定当前话题，后续 callback 继续 patch 同卡。
 
+> 2026-08-01 补充：runtime 只有一个 enabled Feishu gateway 时，该 gateway 自动作为未显式配置 room primary 的安全默认值；多 gateway 仍要求 `/primary on`。话题 `/list` 选择到同 gateway、同 actor 的私聊 workspace claim 时，会把该 workspace 继续展示为可选项；确认后仅在私聊 surface 空闲时完成 detach-like handoff，再按 room owner 接管。私聊存在 pending headless、执行中/排队任务或 route mutation blocker 时 fail closed，并在 terminal picker 卡展示可操作原因。
+
 ## 1. 文档定位
 
 这份文档描述的是**当前代码已经实现**的 remote surface 状态机，不是历史问题列表，也不是未来方案草稿。

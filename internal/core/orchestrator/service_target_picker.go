@@ -394,8 +394,12 @@ func (s *Service) dispatchTargetPickerConfirmed(surface *state.SurfaceConsoleRec
 		events = s.useThreadPreservingTargetPicker(surface, threadID, true)
 		succeeded = targetPickerThreadReady(surface, threadID)
 	case control.FeishuTargetPickerSessionNewThread:
-		events = s.enterTargetPickerNewThread(surface, workspaceKey)
-		succeeded = targetPickerNewThreadReady(surface, workspaceKey)
+		var proceed bool
+		events, proceed = s.prepareIdlePrivateWorkspaceHandoff(surface, workspaceKey)
+		if proceed {
+			events = append(events, s.enterTargetPickerNewThread(surface, workspaceKey)...)
+			succeeded = targetPickerNewThreadReady(surface, workspaceKey)
+		}
 	default:
 		return notice(surface, "target_picker_selection_missing", "当前选择的目标无效，请重新选择。")
 	}
@@ -835,8 +839,9 @@ func (s *Service) targetPickerWorkspaceEntries(surface *state.SurfaceConsoleReco
 		} else {
 			attachable = s.resolveWorkspaceAttachInstanceFromCandidates(surface, workspaceKey, instances) != nil
 		}
-		busy := s.workspaceBusyOwnerForSurface(surface, workspaceKey) != nil
-		if busy {
+		busyOwner := s.workspaceBusyOwnerForSurface(surface, workspaceKey)
+		busy := busyOwner != nil
+		if busy && !sameUserPrivateWorkspaceHandoff(surface, busyOwner) {
 			continue
 		}
 		gitInfo := gitmeta.WorkspaceInfo{}

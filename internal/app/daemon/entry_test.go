@@ -92,11 +92,10 @@ func TestRuntimeGatewayAppsAppliesRuntimeOverrideCredentials(t *testing.T) {
 
 func TestBuildRuntimeGatewayAppsIncludesPrimaryLookupHook(t *testing.T) {
 	appConfig := config.DefaultAppConfig()
-	appConfig.Feishu.Apps = []config.FeishuAppConfig{{
-		ID:        "app-1",
-		AppID:     "cli_app_1",
-		AppSecret: "secret_app_1",
-	}}
+	appConfig.Feishu.Apps = []config.FeishuAppConfig{
+		{ID: "app-1", AppID: "cli_app_1", AppSecret: "secret_app_1"},
+		{ID: "app-2", AppID: "cli_app_2", AppSecret: "secret_app_2"},
+	}
 	services := config.ServicesConfig{}
 	paths := relayruntime.Paths{StateDir: "/tmp/state"}
 	lookupCalls := 0
@@ -110,8 +109,8 @@ func TestBuildRuntimeGatewayAppsIncludesPrimaryLookupHook(t *testing.T) {
 			return "app-1"
 		},
 	})
-	if len(apps) != 1 {
-		t.Fatalf("expected one runtime app, got %#v", apps)
+	if len(apps) != 2 {
+		t.Fatalf("expected two runtime apps, got %#v", apps)
 	}
 	if apps[0].PrimaryGatewayForChat == nil {
 		t.Fatal("expected PrimaryGatewayForChat hook")
@@ -121,6 +120,41 @@ func TestBuildRuntimeGatewayAppsIncludesPrimaryLookupHook(t *testing.T) {
 	}
 	if lookupCalls != 1 {
 		t.Fatalf("unexpected hook call count: lookup=%d", lookupCalls)
+	}
+}
+
+func TestBuildRuntimeGatewayAppsDefaultsSingleEnabledGatewayAsPrimary(t *testing.T) {
+	disabled := false
+	appConfig := config.DefaultAppConfig()
+	appConfig.Feishu.Apps = []config.FeishuAppConfig{
+		{ID: "app-1", AppID: "cli_app_1", AppSecret: "secret_app_1"},
+		{ID: "app-2", AppID: "cli_app_2", AppSecret: "secret_app_2", Enabled: &disabled},
+	}
+
+	apps := buildRuntimeGatewayApps(appConfig, config.ServicesConfig{}, relayruntime.Paths{StateDir: "/tmp/state"}, gatewayRuntimeHooks{
+		PrimaryGatewayForChat: func(string) string { return "app-2" },
+	})
+	if len(apps) != 2 || apps[0].PrimaryGatewayForChat == nil {
+		t.Fatalf("expected single enabled gateway lookup, got %#v", apps)
+	}
+	if got := apps[0].PrimaryGatewayForChat("oc_chat"); got != "app-1" {
+		t.Fatalf("default primary = %q, want app-1", got)
+	}
+}
+
+func TestBuildRuntimeGatewayAppsDoesNotDefaultWhenMultipleGatewaysEnabled(t *testing.T) {
+	appConfig := config.DefaultAppConfig()
+	appConfig.Feishu.Apps = []config.FeishuAppConfig{
+		{ID: "app-1", AppID: "cli_app_1", AppSecret: "secret_app_1"},
+		{ID: "app-2", AppID: "cli_app_2", AppSecret: "secret_app_2"},
+	}
+
+	apps := buildRuntimeGatewayApps(appConfig, config.ServicesConfig{}, relayruntime.Paths{StateDir: "/tmp/state"}, gatewayRuntimeHooks{})
+	if len(apps) != 2 {
+		t.Fatalf("expected two runtime apps, got %#v", apps)
+	}
+	if apps[0].PrimaryGatewayForChat != nil || apps[1].PrimaryGatewayForChat != nil {
+		t.Fatalf("multiple enabled gateways must require explicit primary, got %#v", apps)
 	}
 }
 
